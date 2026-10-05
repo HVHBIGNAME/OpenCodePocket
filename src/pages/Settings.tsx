@@ -1,0 +1,74 @@
+import { useEffect, useState } from 'react';
+import { AudioLines, Bell, Check, ChevronRight, GitBranch as Github, Globe, KeyRound, Laptop, Link2, ShieldCheck, Smartphone, Trash2, Zap } from 'lucide-react';
+import { z } from 'zod';
+import { APP_VERSION } from '../../shared/protocol';
+import { usePocket } from '../store/PocketProvider';
+import { isNative, platform, PocketNative } from '../lib/native';
+import { Button, ExternalLink, Modal, Toggle } from '../components/ui';
+import type { Config, Device } from '../types';
+
+const permissionSchema = z.union([z.enum(['ask','allow','deny']), z.record(z.string(), z.union([z.enum(['ask','allow','deny']), z.record(z.string(), z.enum(['ask','allow','deny']))]))]);
+const tools = [['read','Чтение файлов'],['edit','Изменение файлов'],['bash','Команды терминала'],['webfetch','Веб-запросы'],['task','Запуск подзадач'],['external_directory','Внешние папки']] as const;
+
+export function Settings() {
+  const { client, preferences, setPreferences, setConnectOpen, setScreen, config, saveConfig, perform, notify, bridgeInfo } = usePocket();
+  const [pendingPermission, setPendingPermission] = useState<Config['permission']>();
+  const [advanced, setAdvanced] = useState(false);
+  const [devices, setDevices] = useState(false);
+  const [notificationBusy, setNotificationBusy] = useState(false);
+  const [permissionEdits, setPermissionEdits] = useState<Record<string, 'ask' | 'allow' | 'deny'>>({});
+  useEffect(() => setPermissionEdits({}), [config.permission]);
+  async function notifications(enabled: boolean) {
+    setNotificationBusy(true);
+    await perform(async () => {
+      if (enabled) {
+        if (!isNative) throw new Error('Системные уведомления доступны в установленном APK/IPA.');
+        const result = await PocketNative.requestNotifications();
+        if (!result.granted) throw new Error('Разрешите уведомления OCC в настройках телефона.');
+        if (platform === 'ios' && bridgeInfo?.push.apns && client) {
+          const push = await PocketNative.registerPush();
+          await client.companion('/push', 'POST', push);
+        }
+      } else if (platform === 'ios' && client?.connection.mode === 'bridge') await client.companion('/push', 'DELETE');
+      await setPreferences({ notifications: enabled });
+      if (enabled && platform === 'ios' && !bridgeInfo?.push.apns) notify('Уведомления включены. Для доставки в фоне настройте APNs на мосте или подписку ntfy.');
+    });
+    setNotificationBusy(false);
+  }
+  const permission = config.permission;
+  return <div className="page settings-page"><div className="page-heading"><div><span className="eyebrow">YOUR SERVER. YOUR RULES.</span><h1>По твоим правилам.</h1><p>Настрой поток работы под себя.</p></div><span className="version-badge mono">OCC / {APP_VERSION}</span></div>
+    <div className="settings-grid"><div className="settings-main"><section className="panel settings-section"><div className="settings-section-title"><Laptop size={20}/><div><h2>Подключение</h2><p>Прямая связь с твоим рабочим пространством.</p></div></div><button className="settings-link-row" onClick={() => setConnectOpen(true)}><span className="settings-link-icon"><Link2 size={20}/></span><span><strong>{client?.connection.name ?? 'Добавить компьютер'}</strong><small>{client?.connection.url ?? 'QR-код, туннель или локальная сеть'}</small></span><ChevronRight size={18}/></button>{client?.connection.mode === 'bridge' && <button className="settings-link-row" onClick={() => setDevices(true)}><span className="settings-link-icon"><Smartphone size={20}/></span><span><strong>Подключённые устройства</strong><small>Посмотреть и отозвать доступ</small></span><ChevronRight size={18}/></button>}</section>
+      <section className="panel settings-section"><div className="settings-section-title"><ShieldCheck size={20}/><div><h2>Разрешения OpenCode</h2><p>Эти настройки сохраняются на компьютере для проекта подключения.</p></div></div><div className="permission-presets"><button disabled={!client} onClick={() => setPendingPermission({ read: 'allow', edit: 'ask', bash: 'ask', task: 'ask', webfetch: 'ask', external_directory: 'ask' })}><ShieldCheck size={20}/><strong>Под контролем</strong><span>Спрашивать перед действиями</span></button><button disabled={!client} onClick={() => setPendingPermission({ read: 'allow', edit: 'allow', bash: 'ask', task: 'allow', webfetch: 'allow', external_directory: 'ask' })}><Check size={20}/><strong>В потоке</strong><span>Правки — да, терминал — спросить</span></button><button disabled={!client} onClick={() => setPendingPermission('allow')}><Zap size={20}/><strong>Автопилот</strong><span>Разрешать все действия</span></button></div>
+        <div className="permission-rules">{tools.map(([id,label]) => {
+          const current = permissionEdits[id] ?? (typeof permission === 'string' ? permission : permission?.[id]);
+          return <label className="permission-rule" key={id}><span>{label}<code>{id}</code></span><select aria-label={label} disabled={!client} value={typeof current === 'string' ? current : current ? 'rules' : 'inherit'} onChange={(event) => setPermissionEdits((old) => ({ ...old, [id]: event.target.value as 'ask' | 'allow' | 'deny' }))}>{current && typeof current === 'object' && <option value="rules">По шаблонам</option>}{!current && <option value="inherit">По умолчанию</option>}<option value="ask">Спрашивать</option><option value="allow">Разрешать</option><option value="deny">Запрещать</option></select></label>;
+        })}</div><div className="settings-section-actions"><button className="subtle-link" disabled={!client} onClick={() => setAdvanced(true)}>Шаблоны и JSON<ChevronRight size={15}/></button><Button variant="secondary" disabled={!Object.keys(permissionEdits).length || !client} onClick={() => setPendingPermission({ ...(typeof permission === 'string' ? { '*': permission } : permission), ...permissionEdits })}>Сохранить правила</Button></div></section>
+      <section className="panel settings-section"><div className="settings-section-title"><AudioLines size={20}/><div><h2>Голос → промпт</h2><p>Нативное распознавание речи устройства.</p></div></div><Toggle checked={preferences.offlineSpeech} onChange={(offlineSpeech) => void perform(() => setPreferences({ offlineSpeech }))} label="Только на устройстве" description="Аудио не отправляется в облачный распознаватель. Нужен установленный языковой пакет."/><label className="permission-rule"><span>Язык диктовки<code>speech locale</code></span><select value={preferences.speechLocale} onChange={(event) => void perform(() => setPreferences({ speechLocale: event.target.value }))}><option value="ru-RU">Русский</option><option value="en-US">English (US)</option><option value="uk-UA">Українська</option><option value="de-DE">Deutsch</option><option value="es-ES">Español</option><option value="fr-FR">Français</option><option value="zh-CN">中文</option></select></label><p className="form-hint">Если офлайн-распознавание недоступно, OCC сообщит об этом. Облачный режим включается только этим переключателем.</p></section>
+    </div><aside className="settings-aside"><section className="panel settings-section"><div className="settings-section-title"><Bell size={20}/><div><h2>Не теряй нить</h2><p>Когда OpenCode ждёт тебя.</p></div></div><Toggle checked={preferences.notifications} disabled={notificationBusy} onChange={(enabled) => void notifications(enabled)} label="Уведомления" description="Вопросы, доступы и ошибки"/><div className="notification-info"><span className="eyebrow">{platform === 'ios' ? 'IOS / PUSH DELIVERY' : 'ANDROID / LIVE CONNECTION'}</span><p>{platform === 'ios' ? bridgeInfo?.push.apns ? 'APNs настроен на мосте. Для фоновой доставки приложение должно быть подписано с Push Notifications entitlement.' : 'В фоне iOS нужен APNs на мосте или отдельная подписка ntfy. Обычный поток событий работает, пока приложение активно.' : 'На Android OCC поддерживает соединение через фоновый сервис с постоянным уведомлением. Система может ограничивать его при энергосбережении.'}</p><ExternalLink href="https://github.com/HVHBIGNAME/OpenCodePocket/blob/main/docs/notifications.md">Настроить доставку</ExternalLink></div>{client?.connection.mode === 'bridge' && <Button variant="secondary" onClick={() => void perform(async () => { const result = await client.companion<{ dispatched: boolean }>('/notifications/test', 'POST'); notify(result.dispatched ? 'Тест передан в настроенные push-каналы.' : 'На мосте пока не настроены APNs или ntfy.'); })}>Тест push-канала</Button>}</section>
+      <section className="panel settings-section"><div className="settings-section-title"><KeyRound size={20}/><div><h2>Интеллект</h2><p>Подключённые провайдеры</p></div></div><button className="settings-link-row" onClick={() => setScreen('models')}><span><strong>Модели и API-ключи</strong><small>Каталог, варианты, свой endpoint</small></span><ChevronRight size={18}/></button></section>
+      <section className="panel settings-section"><div className="settings-section-title"><Smartphone size={20}/><div><h2>Ощущение приложения</h2></div></div><Toggle checked={preferences.haptics} onChange={(haptics) => void perform(() => setPreferences({ haptics }))} label="Тактильный отклик" description="Короткий отклик на отправку и ответы"/></section>
+      <section className="about-card"><div className="eyebrow">INDEPENDENT SOFTWARE / 2026</div><h3>Собрано с вайбом.<br/><em>Для настоящей работы.</em></h3><p>OpenCode Pocket — независимый мобильный клиент OpenCode.</p><div><ExternalLink href="https://github.com/HVHBIGNAME/OpenCodePocket"><Github size={16}/>Исходники</ExternalLink><ExternalLink href="https://github.com/HVHBIGNAME"><Globe size={15}/>HVHBIGNAME</ExternalLink></div></section>
+    </aside></div>
+    {pendingPermission !== undefined && <Modal title={pendingPermission === 'allow' ? 'Включить автопилот?' : 'Применить правила?'} onClose={() => setPendingPermission(undefined)}><p className="modal-paragraph">{pendingPermission === 'allow' ? 'OpenCode сможет менять файлы, запускать команды и обращаться к внешним папкам без отдельных запросов разрешения. Настройка применяется на компьютере.' : 'Новые правила сохранятся в конфигурации проекта OpenCode на компьютере. Правила конкретного агента или сессии могут иметь приоритет.'}</p><div className="modal-actions"><Button variant="secondary" onClick={() => setPendingPermission(undefined)}>Отмена</Button><Button onClick={() => void perform(async () => { await saveConfig({ permission: pendingPermission }); setPendingPermission(undefined); })}>Применить<Check size={16}/></Button></div></Modal>}
+    {advanced && <PermissionJson onClose={() => setAdvanced(false)}/>} {devices && <DevicesModal onClose={() => setDevices(false)}/>}
+  </div>;
+}
+
+function PermissionJson({ onClose }: { onClose: () => void }) {
+  const { config, saveConfig, perform } = usePocket();
+  const [text, setText] = useState(JSON.stringify(config.permission ?? { bash: { '*': 'ask', 'git status*': 'allow' } }, null, 2));
+  const [busy, setBusy] = useState(false);
+  return <Modal title="Правила по шаблонам" subtitle="OpenCode использует последнее совпавшее правило: общие шаблоны ставьте раньше частных." onClose={onClose}><form className="form-stack" onSubmit={(event) => { event.preventDefault(); setBusy(true); void perform(async () => { const permission = permissionSchema.parse(JSON.parse(text)); await saveConfig({ permission }); onClose(); }).finally(() => setBusy(false)); }}><label>permission<textarea className="code-input" rows={14} value={text} onChange={(event) => setText(event.target.value)} spellCheck={false}/></label><Button type="submit" busy={busy}>Сохранить на компьютере</Button></form></Modal>;
+}
+
+function DevicesModal({ onClose }: { onClose: () => void }) {
+  const { client, perform, forget } = usePocket();
+  const [devices, setDevices] = useState<Device[]>([]);
+  const [selected, setSelected] = useState<string>();
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { if (client) void perform(async () => setDevices(await client.companion<Device[]>('/devices'))); }, [client, perform]);
+  return <Modal title="Устройства на связи" subtitle="У каждого устройства отдельный отзываемый ключ." onClose={onClose}><div className="device-list">{devices.map((device) => <div className="saved-connection" key={device.id}><Smartphone size={21}/><div><strong>{device.name}{device.current ? ' · это устройство' : ''}</strong><small>{new Date(device.created).toLocaleDateString('ru')}</small></div><Button variant={selected === device.id ? 'danger' : 'ghost'} disabled={busy} onClick={() => {
+    if (selected !== device.id) { setSelected(device.id); return; }
+    setBusy(true); void perform(async () => { await client!.companion(`/devices/${device.id}`, 'DELETE'); setDevices((old) => old.filter((item) => item.id !== device.id)); if (device.current) { await forget(client!.connection.id); onClose(); } }).finally(() => setBusy(false));
+  }}><Trash2 size={15}/>{selected === device.id ? 'Отозвать?' : 'Отозвать'}</Button></div>)}</div></Modal>;
+}

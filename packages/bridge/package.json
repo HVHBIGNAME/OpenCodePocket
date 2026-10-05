@@ -1,0 +1,13 @@
+{
+  "name": "@hvhbigname/occ-bridge",
+  "version": "1.0.0",
+  "description": "Pair your OpenCode sessions with OpenCode Pocket using a QR code.",
+  "type": "module",
+  "license": "MIT",
+  "author": "HVHBIGNAME",
+  "repository": { "type": "git", "url": "https://github.com/HVHBIGNAME/OpenCodePocket.git", "directory": "packages/bridge" },
+  "bin": { "occ-pocket": "dist/cli.js" },
+  "exports": { ".": "./dist/plugin.js", "./server": "./dist/server.js" },
+  "files": ["dist", "README.md", "LICENSE"],
+  "engines": { "node": ">=22" }
+}
