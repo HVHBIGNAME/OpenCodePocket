@@ -9,8 +9,7 @@ import type { Command, Session } from '../types';
 import { IconButton } from './ui';
 import { ModelPicker } from './ModelPicker';
 import { SessionOptions } from './SessionOptions';
-
-type Attachment = { type: 'file'; mime: string; filename: string; url: string; bytes: number };
+import { prepareAttachment, type Attachment } from '../lib/attachments';
 
 export function Composer({ session }: { session: Session }) {
   const { client, data, model, connectedModels, agent, preferences, perform, notify, loadMessages, haptic } =
@@ -19,6 +18,7 @@ export function Composer({ session }: { session: Session }) {
   const [draftLoaded, setDraftLoaded] = useState(false);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [sending, setSending] = useState(false);
+  const [preparingFiles, setPreparingFiles] = useState(false);
   const [listening, setListening] = useState(false);
   const [showModels, setShowModels] = useState(false);
   const [showOptions, setShowOptions] = useState(false);
@@ -77,7 +77,7 @@ export function Composer({ session }: { session: Session }) {
   }, [client, session.directory, notify]);
 
   async function send() {
-    if (!client || (!draft.trim() && !attachments.length) || sending || busy) return;
+    if (!client || (!draft.trim() && !attachments.length) || sending || preparingFiles || busy) return;
     setSending(true);
     const text = draft.trim();
     const command = text.startsWith('/')
@@ -125,7 +125,11 @@ export function Composer({ session }: { session: Session }) {
       setDraft('');
       setAttachments([]);
       if (isNative) void Keyboard.hide();
-      await perform(() => loadMessages(session));
+      try {
+        await loadMessages(session);
+      } catch (error) {
+        notify(`Сообщение отправлено. Не удалось обновить историю: ${errorMessage(error)}`, true);
+      }
     }
     setSending(false);
   }
@@ -160,27 +164,16 @@ export function Composer({ session }: { session: Session }) {
 
   async function addFiles(list: FileList | null) {
     if (!list) return;
+    setPreparingFiles(true);
     await perform(async () => {
-      const total =
-        attachments.reduce((sum, item) => sum + item.bytes, 0) +
-        [...list].reduce((sum, file) => sum + file.size, 0);
-      if (total > 8 * 1024 * 1024) throw new Error('Максимальный размер вложений — 8 МБ.');
       if (attachments.length + list.length > 6) throw new Error('До 6 вложений в одном сообщении.');
-      const added = await Promise.all(
-        [...list].map(async (file): Promise<Attachment> => {
-          if (!['image/png', 'image/jpeg', 'image/webp', 'application/pdf'].includes(file.type))
-            throw new Error('Поддерживаются PNG, JPEG, WebP и PDF');
-          const url = await new Promise<string>((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = () => resolve(String(reader.result));
-            reader.onerror = () => reject(new Error(`Не удалось прочитать ${file.name}`));
-            reader.readAsDataURL(file);
-          });
-          return { type: 'file', filename: file.name, mime: file.type, url, bytes: file.size };
-        }),
-      );
+      const added: Attachment[] = [];
+      for (const file of list) added.push(await prepareAttachment(file));
+      const total = [...attachments, ...added].reduce((sum, item) => sum + item.bytes, 0);
+      if (total > 8 * 1024 * 1024) throw new Error('Максимальный размер вложений после обработки — 8 МБ.');
       setAttachments((old) => [...old, ...added]);
     });
+    setPreparingFiles(false);
     if (filesRef.current) filesRef.current.value = '';
   }
   function keyboard(event: KeyboardEvent<HTMLTextAreaElement>) {
@@ -207,6 +200,11 @@ export function Composer({ session }: { session: Session }) {
         </div>
       )}
       <div className={`composer ${listening ? 'composer-listening' : ''}`}>
+        {preparingFiles && (
+          <div className="form-hint" role="status">
+            Подготовка фото…
+          </div>
+        )}
         {attachments.length > 0 && (
           <div className="composer-attachments">
             {attachments.map((file, index) => (
@@ -226,7 +224,7 @@ export function Composer({ session }: { session: Session }) {
         <textarea
           ref={inputRef}
           aria-label="Промпт для OpenCode"
-          placeholder={listening ? 'Слушаю. Расскажи свою идею…' : 'Что соберём дальше?'}
+          placeholder={listening ? 'Диктовка…' : 'Запрос…'}
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
           onKeyDown={keyboard}
@@ -250,12 +248,16 @@ export function Composer({ session }: { session: Session }) {
             <input
               ref={filesRef}
               type="file"
-              accept="image/png,image/jpeg,image/webp,application/pdf"
+              accept="image/*,application/pdf"
               multiple
               hidden
               onChange={(event) => void addFiles(event.target.files)}
             />
-            <IconButton label="Прикрепить файл" disabled={sending} onClick={() => filesRef.current?.click()}>
+            <IconButton
+              label="Прикрепить файл"
+              disabled={sending || preparingFiles}
+              onClick={() => filesRef.current?.click()}
+            >
               <Paperclip size={19} />
             </IconButton>
             <IconButton
@@ -285,7 +287,7 @@ export function Composer({ session }: { session: Session }) {
               <button
                 className="send-button"
                 aria-label="Отправить промпт"
-                disabled={sending || listening || (!draft.trim() && !attachments.length)}
+                disabled={sending || preparingFiles || listening || (!draft.trim() && !attachments.length)}
                 onClick={() => void send()}
               >
                 {sending ? <span className="send-loading" /> : <ArrowUp size={21} />}
@@ -294,21 +296,23 @@ export function Composer({ session }: { session: Session }) {
           </div>
         </div>
       </div>
-      <div className="composer-footnote">
-        <span>
-          {listening ? (
-            <>
-              <span className="record-dot" />
-              {preferences.offlineSpeech ? 'Распознавание на устройстве' : 'Системное распознавание'}
-            </>
-          ) : agent === 'plan' ? (
-            'Режим планирования'
-          ) : (
-            'Код выполняется на твоём ПК'
-          )}
-        </span>
-        <span>{busy ? 'В работе…' : (model?.variant ?? '')}</span>
-      </div>
+      {(listening || agent === 'plan' || busy || model?.variant) && (
+        <div className="composer-footnote">
+          <span>
+            {listening ? (
+              <>
+                <span className="record-dot" />
+                {preferences.offlineSpeech ? 'Распознавание на устройстве' : 'Системное распознавание'}
+              </>
+            ) : agent === 'plan' ? (
+              'Режим планирования'
+            ) : (
+              ''
+            )}
+          </span>
+          <span>{busy ? 'В работе…' : (model?.variant ?? '')}</span>
+        </div>
+      )}
       {showModels && <ModelPicker onClose={() => setShowModels(false)} />}
       {showOptions && (
         <SessionOptions

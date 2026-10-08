@@ -32,25 +32,31 @@
 
 ## Установка
 
-**Android:** [скачать подписанный APK](https://github.com/HVHBIGNAME/OpenCodePocket/releases/download/v1.0.0/OpenCodePocket-1.0.0-android.apk). APK подписан постоянным ключом проекта. Android 8+.
+**Android:** [скачать подписанный APK](https://github.com/HVHBIGNAME/OpenCodePocket/releases/download/v1.0.1/OpenCodePocket-1.0.1-android.apk). APK подписан постоянным ключом проекта. Android 8+.
 
-**iOS:** [скачать IPA](https://github.com/HVHBIGNAME/OpenCodePocket/releases/download/v1.0.0/OpenCodePocket-1.0.0-ios-unsigned.ipa). Это скомпилированный arm64 IPA для iOS 15+, **без Apple-подписи**. Для установки нужна самостоятельная подпись через Sideloadly/AltStore или свою Apple Developer-команду. Фоновый APNs требует подходящих entitlements и provisioning profile. [Подробнее](docs/build.md#ios).
+**iOS:** [скачать IPA](https://github.com/HVHBIGNAME/OpenCodePocket/releases/download/v1.0.1/OpenCodePocket-1.0.1-ios-unsigned.ipa). Это скомпилированный arm64 IPA для iOS 15+, **без Apple-подписи**. Для установки нужна самостоятельная подпись через Sideloadly/AltStore или свою Apple Developer-команду. Фоновый APNs требует подходящих entitlements и provisioning profile. [Подробнее](docs/build.md#ios).
 
 ### Компьютер → телефон
 
-Установи [Node.js 22+](https://nodejs.org/) и [cloudflared](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/), затем:
+**Windows:** [скачай `Install-Pocket.cmd`](https://github.com/HVHBIGNAME/OpenCodePocket/releases/download/v1.0.1/Install-Pocket.cmd) и запусти двойным щелчком. Установщик сам скачает Node.js, если его нет, и `cloudflared`, проверит контрольные суммы и подключит плагин.
+
+**macOS / Linux:**
 
 ```sh
-npm install -g https://github.com/HVHBIGNAME/OpenCodePocket/releases/download/v1.0.0/hvhbigname-occ-bridge-1.0.0.tgz
-occ-pocket install --tunnel
-opencode --port 4096
+curl -fsSL https://github.com/HVHBIGNAME/OpenCodePocket/releases/download/v1.0.1/install-pocket.sh | sh
 ```
 
-1. После установки плагина **перезапусти OpenCode** с указанным портом.
-2. Открой `~/.config/opencode/occ-pocket/pairing.html` (Windows: `%USERPROFILE%\.config\opencode\occ-pocket\pairing.html`).
+1. После установки плагина **перезапусти OpenCode**. HTTP-порт настраивается автоматически, существующий порт сохраняется.
+2. Выполни **`/pocket-qr`** — QR откроется в браузере компьютера.
 3. В OCC: **Подключить компьютер → Сканировать QR-код → Подключиться**.
 
-Новый одноразовый QR: `occ-pocket pair`. Срок действия — 10 минут. Секрет OpenCode не попадает в QR. Устройства можно отозвать в настройках OCC.
+**`/pocket`** — меню, **`/pocket-status`** — состояние, **`/pocket-config`** — выбор туннеля или LAN, имя и порт. В TUI это локальные команды с меню; в desktop они используют инструмент плагина через агента. Изменения подключения применяются после перезапуска OpenCode. QR одноразовый и действует 10 минут; секрет OpenCode не попадает в QR.
+
+Если Node.js уже установлен, доступна одна команда:
+
+```sh
+npx --yes --package=https://github.com/HVHBIGNAME/OpenCodePocket/releases/download/v1.0.1/hvhbigname-occ-bridge-1.0.1.tgz occ-pocket install
+```
 
 Если OpenCode уже слушает порт, можно подключить мост без перезапуска:
 

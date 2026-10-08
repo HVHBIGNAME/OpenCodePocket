@@ -14,6 +14,7 @@ import { type ServerEvent } from '../../shared/protocol';
 import { ApiError, errorMessage, OpenCodeClient } from '../lib/api';
 import { isNative, PocketNative, vaultRead, vaultWrite } from '../lib/native';
 import { applyEvent, emptyData, type LiveData } from './reducer';
+import { isGenerationCancelled } from '../lib/session-errors';
 import {
   attachDiagnosticClient,
   captureDiagnostic,
@@ -264,7 +265,8 @@ function usePocketState() {
       }
       if (event.type === 'session.error') {
         const error = event.properties.error as { data?: { message?: string } } | undefined;
-        notify(error?.data?.message ?? 'В сессии произошла ошибка. Проверьте ответ провайдера.', true);
+        if (isGenerationCancelled(error)) hydrate();
+        else notify(error?.data?.message ?? 'В сессии произошла ошибка. Проверьте ответ провайдера.', true);
       }
       setData((previous) => applyEvent(previous, event));
       if (event.type.startsWith('session.next.') || event.type === 'session.idle') hydrate();

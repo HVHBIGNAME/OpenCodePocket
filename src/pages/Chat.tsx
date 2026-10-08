@@ -146,8 +146,8 @@ export function Chat() {
                     Загружаем контекст…
                   </div>
                 ) : (
-                  <EmptyState icon={<Code2 size={28} />} title="Место для следующей идеи">
-                    Напиши задачу или надиктуй её — OpenCode продолжит на компьютере.
+                  <EmptyState icon={<Code2 size={28} />} title="Нет сообщений">
+                    Введите запрос.
                   </EmptyState>
                 ))}
               {entries.map((entry) => (
@@ -185,7 +185,7 @@ export function Chat() {
       )}
       {actions && <SessionActions session={session} onClose={() => setActions(false)} />}
       {requestsOpen && (
-        <Modal title="Продолжим работу?" subtitle={session.title} onClose={() => setRequestsOpen(false)}>
+        <Modal title="Запросы" subtitle={session.title} onClose={() => setRequestsOpen(false)}>
           <div className="request-sheet">
             {questions.map((request) => (
               <QuestionCard key={request.id} request={request} />
@@ -210,7 +210,7 @@ function SessionActions({ session, onClose }: { session: Session; onClose: () =>
     void perform(operation).finally(() => setBusy(false));
   };
   return (
-    <Modal title="Сессия под рукой" subtitle={session.directory} onClose={onClose}>
+    <Modal title="Действия с сессией" subtitle={session.directory} onClose={onClose}>
       <form
         className="form-stack"
         onSubmit={(event) => {

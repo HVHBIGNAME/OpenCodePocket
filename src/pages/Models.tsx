@@ -42,9 +42,7 @@ export function Models() {
     <div className="page models-page">
       <div className="page-heading">
         <div>
-          <span className="eyebrow">ТВОИ НАПАРНИКИ</span>
           <h1>Модели</h1>
-          <p>Выбери под свою задачу.</p>
         </div>
         <Button disabled={!client} onClick={() => setAdd(true)}>
           <Plus size={17} />

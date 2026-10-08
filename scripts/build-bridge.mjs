@@ -7,6 +7,7 @@ await build({
     'packages/bridge/src/cli.ts',
     'packages/bridge/src/plugin.ts',
     'packages/bridge/src/server.ts',
+    'packages/bridge/src/tui.ts',
   ],
   outdir: 'packages/bridge/dist',
   bundle: true,

@@ -59,6 +59,25 @@ async function setup() {
 }
 
 describe('authenticated bridge', () => {
+  it('withholds pairing codes until the public tunnel is ready and protects local status', async () => {
+    const { bridge, directory, headers } = await setup();
+    const runtime = JSON.parse(await readFile(join(directory, 'runtime.json'), 'utf8'));
+    bridge.setPairingError('Cloudflare HTTP 530');
+    const control = { 'X-OCC-Control': runtime.controlToken };
+    const pair = await fetch(`${bridge.localUrl}/occ/local/pair`, {
+      method: 'POST',
+      headers: control,
+      body: '{}',
+    });
+    expect(pair.status).toBe(409);
+    expect(await pair.json()).toMatchObject({ error: 'Cloudflare HTTP 530' });
+    expect((await fetch(`${bridge.localUrl}/occ/local/status`, { headers })).status).toBe(401);
+    const status = await (await fetch(`${bridge.localUrl}/occ/local/status`, { headers: control })).json();
+    expect(status).toMatchObject({ pairingReady: false, error: 'Cloudflare HTTP 530' });
+    expect(JSON.stringify(status)).not.toContain('tokenHash');
+    bridge.setPublicUrl('https://working.example.com');
+    expect(bridge.createPairing().url).toBe('https://working.example.com');
+  });
   it('accepts only authenticated, allowlisted report batches', async () => {
     const { bridge, headers } = await setup();
     const diagnostic = {

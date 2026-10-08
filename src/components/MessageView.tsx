@@ -1,11 +1,11 @@
-import { Children, isValidElement, memo, type ReactNode } from 'react';
+import { Children, isValidElement, memo, useState, type ReactNode } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Brain, Check, ChevronRight, FileCode2, FileText, LoaderCircle, Terminal, X } from 'lucide-react';
 import { clock, money, number } from '../lib/format';
 import type { MessageEntry, Part } from '../types';
-import { Logo } from './Brand';
 import { CopyButton } from './ui';
+import { isAbortedTool, isGenerationCancelled } from '../lib/session-errors';
 
 function CodeBlock({ children }: { children: ReactNode }) {
   const child = Children.toArray(children)[0];
@@ -49,21 +49,37 @@ export function RichText({ text }: { text: string }) {
   );
 }
 
+function ReasoningView({ part }: { part: Extract<Part, { type: 'reasoning' }> }) {
+  const [expanded, setExpanded] = useState<boolean>();
+  const hasText = Boolean(part.text.trim());
+  return (
+    <details
+      className="reasoning-block"
+      open={expanded ?? hasText}
+      onToggle={(event) => setExpanded(event.currentTarget.open)}
+    >
+      <summary>
+        <Brain size={15} />
+        Ход рассуждений{!hasText && (part.time.end ? ' · текст не передан' : '…')}
+        <ChevronRight size={14} />
+      </summary>
+      {hasText ? (
+        <RichText text={part.text} />
+      ) : (
+        <p className="form-hint">
+          {part.time.end ? 'Сервер не передал текст рассуждений.' : 'Модель обдумывает ответ.'}
+        </p>
+      )}
+    </details>
+  );
+}
+
 function PartView({ part }: { part: Part }) {
   switch (part.type) {
     case 'text':
       return part.ignored ? null : <RichText text={part.text} />;
     case 'reasoning':
-      return (
-        <details className="reasoning-block">
-          <summary>
-            <Brain size={15} />
-            Ход рассуждений
-            <ChevronRight size={14} />
-          </summary>
-          <RichText text={part.text} />
-        </details>
-      );
+      return <ReasoningView part={part} />;
     case 'tool': {
       const state = part.state;
       return (
@@ -96,7 +112,11 @@ function PartView({ part }: { part: Part }) {
                 </CodeBlock>
               </>
             )}
-            {state.status === 'error' && <p className="inline-error">{state.error}</p>}
+            {state.status === 'error' && (
+              <p className={isAbortedTool(state.error) ? 'system-part' : 'inline-error'}>
+                {isAbortedTool(state.error) ? 'Выполнение отменено' : state.error}
+              </p>
+            )}
           </div>
         </details>
       );
@@ -163,7 +183,6 @@ export const MessageView = memo(function MessageView({ entry }: { entry: Message
     .join('\n');
   return (
     <article className={`message ${assistant ? 'message-assistant' : 'message-user'}`}>
-      <div className="message-avatar">{assistant ? <Logo size={20} /> : <span>H</span>}</div>
       <div className="message-content">
         <header className="message-header">
           <strong>{assistant ? 'OpenCode' : 'Ты'}</strong>
@@ -179,13 +198,15 @@ export const MessageView = memo(function MessageView({ entry }: { entry: Message
           ))}
         </div>
         {entry.info.role === 'assistant' && entry.info.error && (
-          <p className="inline-error">
-            {'message' in entry.info.error.data
-              ? String(entry.info.error.data.message)
-              : entry.info.error.name}
+          <p className={isGenerationCancelled(entry.info.error) ? 'system-part' : 'inline-error'}>
+            {isGenerationCancelled(entry.info.error)
+              ? 'Генерация отменена'
+              : 'message' in entry.info.error.data
+                ? String(entry.info.error.data.message)
+                : entry.info.error.name}
           </p>
         )}
-        {entry.info.role === 'assistant' && entry.info.time.completed && (
+        {entry.info.role === 'assistant' && entry.info.time.completed && !entry.info.error && (
           <footer className="message-footer">
             <Check size={12} />
             <span>

@@ -4,7 +4,13 @@ import UserNotifications
 import UIKit
 
 final class PocketBridgeViewController: CAPBridgeViewController {
-    override func capacitorDidLoad() { bridge?.registerPluginInstance(PocketNativePlugin()) }
+    override func capacitorDidLoad() {
+        bridge?.registerPluginInstance(PocketNativePlugin())
+        webView?.scrollView.bounces = false
+        webView?.scrollView.alwaysBounceHorizontal = false
+        webView?.scrollView.alwaysBounceVertical = false
+        webView?.scrollView.keyboardDismissMode = .interactive
+    }
     override var preferredStatusBarStyle: UIStatusBarStyle { .lightContent }
 }
 

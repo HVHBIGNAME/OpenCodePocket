@@ -24,6 +24,7 @@ export type BridgeOptions = {
   subscribe?: boolean;
   log?: (message: string) => void;
   reports?: ReportOptions;
+  pairingReady?: boolean;
 };
 
 class HttpError extends Error {
@@ -100,8 +101,12 @@ export async function createBridge(options: BridgeOptions) {
   ]);
   const attempts = new Map<string, { count: number; reset: number }>();
   let publicUrl = options.publicUrl ? normalizeServerUrl(options.publicUrl) : '';
+  let pairingReady = options.pairingReady !== false;
+  let pairingError: string | undefined;
 
   const createPairing = (url = publicUrl) => {
+    if (!pairingReady)
+      throw new HttpError(409, pairingError ?? 'Tunnel is starting. Try /pocket-qr again shortly.');
     if (!url) throw new HttpError(409, 'Specify a public HTTPS URL or a LAN address first');
     const pairing = {
       ...codes.create(),
@@ -148,6 +153,18 @@ export async function createBridge(options: BridgeOptions) {
     const url = new URL(rawPath, 'http://bridge.local');
     if (url.pathname === '/healthz' && request.method === 'GET')
       return json(response, 200, { name: 'OpenCodePocket', version: APP_VERSION });
+    if (url.pathname === '/occ/local/status' && request.method === 'GET') {
+      if (!equalSecret(String(request.headers['x-occ-control'] ?? ''), controlToken))
+        throw new HttpError(401, 'Invalid control token');
+      return json(response, 200, {
+        name: options.name,
+        online: relay.online,
+        pairingReady,
+        publicUrl: pairingReady ? publicUrl : undefined,
+        error: pairingError,
+        devices: devices.devices.map(({ id, name, created }) => ({ id, name, created })),
+      });
+    }
     if (url.pathname === '/occ/local/pair' && request.method === 'POST') {
       if (!equalSecret(String(request.headers['x-occ-control'] ?? ''), controlToken))
         throw new HttpError(401, 'Invalid control token');
@@ -299,6 +316,12 @@ export async function createBridge(options: BridgeOptions) {
     createPairing,
     setPublicUrl: (value: string) => {
       publicUrl = normalizeServerUrl(value);
+      pairingReady = true;
+      pairingError = undefined;
+    },
+    setPairingError: (message: string) => {
+      pairingReady = false;
+      pairingError = message;
     },
     async close() {
       relay.close();

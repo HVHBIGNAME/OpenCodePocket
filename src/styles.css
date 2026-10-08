@@ -11,6 +11,15 @@
   #root {
     margin: 0;
     min-height: 100%;
+    width: 100%;
+    max-width: 100%;
+  }
+  html,
+  body {
+    overflow-x: hidden;
+    overflow-x: clip;
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
   }
   button,
   input,
@@ -236,6 +245,7 @@
 
 @layer layout {
   .app-shell {
+    width: 100%;
     max-width: 640px;
     margin: auto;
     min-height: 100dvh;
@@ -243,7 +253,7 @@
     position: relative;
   }
   .app-header {
-    height: calc(64px + var(--safe-top));
+    height: calc(52px + var(--safe-top));
     padding: var(--safe-top) 20px 0;
     display: flex;
     align-items: center;
@@ -256,27 +266,12 @@
     top: 0;
     z-index: 20;
   }
-  .wordmark {
-    display: inline-flex;
-    gap: 9px;
-    align-items: center;
-    min-height: 44px;
-    padding: 0;
-    background: none;
-    color: var(--icon-strong-base);
-  }
-  .wordmark > span {
-    font-size: 23px;
-    font-weight: 750;
-    color: var(--text-strong);
-    letter-spacing: -0.8px;
-  }
   .connection-switch {
     display: inline-flex;
     align-items: center;
     gap: 7px;
     min-height: 44px;
-    max-width: 57%;
+    max-width: 100%;
     padding: 6px 10px;
     background: var(--button-secondary-base);
     border: 1px solid var(--border-base);
@@ -294,7 +289,7 @@
     padding-bottom: calc(98px + var(--safe-bottom));
   }
   .page {
-    padding: 25px 20px 12px;
+    padding: 16px 20px 12px;
   }
   .page-heading {
     display: flex;
@@ -307,7 +302,8 @@
     min-width: 0;
   }
   .page-heading h1 {
-    margin-top: 7px;
+    font-size: 24px;
+    margin-top: 0;
   }
   .page-heading p {
     font-size: 13px;
@@ -387,7 +383,7 @@
   }
   .app-chat {
     min-height: 0;
-    height: 100dvh;
+    height: var(--app-height, 100dvh);
     overflow: hidden;
   }
   .main-chat {
@@ -414,9 +410,6 @@
     .app-header {
       padding-left: 16px;
       padding-right: 16px;
-    }
-    .wordmark > span {
-      font-size: 21px;
     }
     .connection-switch {
       font-size: 10px;
@@ -589,7 +582,7 @@
     overflow-wrap: anywhere;
   }
   .code-input {
-    font: 13px/1.7 var(--mono);
+    font: 16px/1.7 var(--mono);
     tab-size: 2;
   }
   .modal {
@@ -598,7 +591,7 @@
     margin: auto auto 0;
     width: 100%;
     max-width: 640px;
-    max-height: min(92dvh, 900px);
+    max-height: min(calc(var(--app-height, 100dvh) - var(--safe-top) - 12px), 900px);
     padding: 0;
     overflow-y: auto;
     border: 1px solid var(--border-strong-base);
@@ -686,6 +679,27 @@
   }
   .toast > span {
     flex: 1;
+    min-width: 0;
+  }
+  .toast-summary {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
+    overflow-wrap: anywhere;
+  }
+  .toast-details {
+    color: inherit;
+    background: none;
+    min-height: 44px;
+    font-size: 12px;
+    text-decoration: underline;
+    flex-shrink: 0;
+  }
+  .error-details {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    font: 12px/1.6 var(--mono);
   }
   .toast .icon-button {
     color: inherit;
@@ -767,57 +781,11 @@
   }
 
   .welcome {
-    padding-top: 10px;
-  }
-  .welcome-art {
-    height: 153px;
-    position: relative;
-    overflow: hidden;
-    margin: 0 -20px 16px;
-  }
-  .core-art {
-    position: absolute;
-    width: 235px;
-    height: 200px;
-    left: 50%;
-    top: -20px;
-    transform: translateX(-50%);
-    color: var(--icon-interactive-base);
-  }
-  .core-float {
-    animation: float 7s ease-in-out infinite;
-  }
-  .orbit-flow {
-    animation: orbit 25s linear infinite;
-  }
-  @keyframes float {
-    50% {
-      transform: translateY(-6px);
-    }
-  }
-  @keyframes orbit {
-    to {
-      stroke-dashoffset: -300;
-    }
-  }
-  .welcome > .eyebrow {
-    color: var(--text-weak);
+    padding-top: 16px;
   }
   .welcome h1 {
-    font-size: clamp(31px, 8.8vw, 40px);
+    font-size: 24px;
     line-height: 1.2;
-    letter-spacing: -1.6px;
-    margin-top: 12px;
-  }
-  .welcome h1 em {
-    color: var(--accent);
-    font-style: normal;
-  }
-  .welcome-description {
-    font-size: 14px;
-    line-height: 1.9;
-    color: var(--text-base);
-    margin-top: 18px;
   }
   .welcome-actions {
     display: grid;
@@ -826,50 +794,6 @@
   }
   .welcome-actions .button {
     min-height: 53px;
-  }
-  .welcome-actions .button > svg:last-child:not(:first-child) {
-    margin-left: auto;
-  }
-  .welcome-actions .button-primary {
-    justify-content: flex-start;
-  }
-  .welcome-features {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 8px;
-    margin-top: 29px;
-    border-top: 1px solid var(--line);
-    padding-top: 23px;
-  }
-  .welcome-features > span {
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
-  }
-  .welcome-features svg {
-    color: var(--icon-base);
-    margin-bottom: 7px;
-  }
-  .welcome-features strong {
-    color: var(--text-strong);
-    font-size: 11px;
-  }
-  .welcome-features small {
-    color: var(--text-weak);
-    font-size: 10px;
-  }
-  .welcome-credit {
-    display: flex;
-    justify-content: space-between;
-    font: 9px var(--mono);
-    letter-spacing: 0.3px;
-    color: var(--text-weak);
-    border-top: 1px solid var(--line);
-    margin-top: 25px;
-    padding-top: 18px;
-  }
-  .welcome-credit span {
-    color: var(--text-weak);
   }
 
   .sessions-page {
@@ -942,7 +866,7 @@
     padding: 12px 13px 12px 0;
     box-shadow: none;
     min-height: 46px;
-    font-size: 14px;
+    font-size: 16px;
   }
   .search-field > button {
     width: 44px;
@@ -2309,7 +2233,7 @@
   }
   .provider-filter select {
     min-height: 45px;
-    font-size: 13px;
+    font-size: 16px;
   }
   .model-grid {
     display: grid;
@@ -2561,7 +2485,7 @@
     width: auto;
     max-width: 49%;
     min-height: 45px;
-    font-size: 12px;
+    font-size: 16px;
     padding: 9px 28px 9px 10px;
   }
   .settings-section-actions {
@@ -2921,16 +2845,6 @@
     .model-card h3 {
       font-size: 19px;
     }
-    .welcome h1 {
-      font-size: 43px;
-    }
-    .welcome-art {
-      height: 185px;
-    }
-    .core-art {
-      width: 270px;
-      height: 220px;
-    }
     .welcome {
       padding-left: 32px;
       padding-right: 32px;
@@ -2983,9 +2897,6 @@
     }
     .settings-section {
       padding: 18px;
-    }
-    .permission-rule select {
-      font-size: 11px;
     }
   }
   @media (prefers-reduced-motion: reduce) {

@@ -1,7 +1,7 @@
 import { CapacitorHttp } from '@capacitor/core';
 import { z } from 'zod';
 import { decodeEvent, normalizeServerUrl, SseDecoder, type ServerEvent } from '../../shared/protocol';
-import { isNative, PocketNative } from './native';
+import { isNative, platform, PocketNative } from './native';
 import type { Connection, Profile, Session, Project } from '../types';
 import { captureDiagnostic } from './diagnostics';
 import { diagnosticOperation } from '../../shared/diagnostics';
@@ -56,7 +56,8 @@ export async function http<T>(
       headers,
       data,
       responseType: 'text',
-      connectTimeout: 15_000,
+      // Capacitor iOS uses connectTimeout as the timeout for the entire URLRequest.
+      connectTimeout: platform === 'ios' ? 120_000 : 15_000,
       readTimeout: 120_000,
       disableRedirects: true,
     });

@@ -145,7 +145,7 @@ export function NewSession({ onClose }: { onClose: () => void }) {
 }
 
 export function SessionsPage() {
-  const { data, pendingCount, setScreen, refresh, perform, refreshing, status } = usePocket();
+  const { data, refresh, perform, refreshing, status } = usePocket();
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState('all');
   const [newOpen, setNewOpen] = useState(false);
@@ -163,7 +163,6 @@ export function SessionsPage() {
           : waiting.has(item.id)),
     )
     .sort((a, b) => b.time.updated - a.time.updated);
-  const active = Object.values(data.statuses).filter((item) => item.type !== 'idle').length;
   return (
     <div
       className="page sessions-page"
@@ -182,17 +181,10 @@ export function SessionsPage() {
     >
       <div className="page-heading">
         <div>
-          <span className="eyebrow">НА ТВОЕЙ СТОРОНЕ</span>
           <h1>
             Сессии<span className="heading-count">{data.sessions.length}</span>
           </h1>
-          <p>
-            {status === 'live'
-              ? active
-                ? `${active} в работе · всё синхронизируется`
-                : 'Весь контекст с компьютера'
-              : 'Восстанавливаем соединение…'}
-          </p>
+          {status !== 'live' && <p>Восстановление соединения…</p>}
         </div>
         <IconButton
           label="Обновить сессии"
@@ -207,18 +199,6 @@ export function SessionsPage() {
           <LoaderCircle size={18} className="spin" />
           {refreshing ? 'Обновляем…' : pull > 65 ? 'Отпусти, чтобы обновить' : 'Потяни ещё немного'}
         </div>
-      )}
-      {pendingCount > 0 && (
-        <button className="attention-card" onClick={() => setScreen('inbox')}>
-          <span className="attention-icon">
-            <MessageSquare size={22} />
-          </span>
-          <span>
-            <strong>Нужен твой ответ</strong>
-            <small>{pendingCount} запроса, чтобы продолжить работу</small>
-          </span>
-          <ChevronRight size={20} />
-        </button>
       )}
       <label className="search-field">
         <Search size={19} />
@@ -258,10 +238,10 @@ export function SessionsPage() {
             icon={<Terminal size={29} />}
             title={
               search
-                ? 'Не нашли такую сессию'
+                ? 'Сессии не найдены'
                 : filter !== 'all'
-                  ? 'Здесь пока спокойно'
-                  : 'Начнём что-нибудь новое?'
+                  ? 'Нет сессий по выбранному фильтру'
+                  : 'Нет сессий'
             }
             action={
               !search &&

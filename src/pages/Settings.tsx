@@ -5,7 +5,6 @@ import {
   Check,
   ChevronRight,
   GitBranch as Github,
-  Globe,
   KeyRound,
   Laptop,
   Link2,
@@ -82,9 +81,7 @@ export function Settings() {
     <div className="page settings-page">
       <div className="page-heading">
         <div>
-          <span className="eyebrow">YOUR SERVER. YOUR RULES.</span>
           <h1>Настройки</h1>
-          <p>Настрой поток работы под себя.</p>
         </div>
         <span className="version-badge mono">OCC / {APP_VERSION}</span>
       </div>
@@ -96,7 +93,6 @@ export function Settings() {
               <Laptop size={20} />
               <div>
                 <h2>Подключение</h2>
-                <p>Прямая связь с твоим рабочим пространством.</p>
               </div>
             </div>
             <button className="settings-link-row" onClick={() => setConnectOpen(true)}>
@@ -263,8 +259,7 @@ export function Settings() {
             <div className="settings-section-title">
               <Bell size={20} />
               <div>
-                <h2>Не теряй нить</h2>
-                <p>Когда OpenCode ждёт тебя.</p>
+                <h2>Уведомления</h2>
               </div>
             </div>
             <Toggle
@@ -315,7 +310,7 @@ export function Settings() {
             <div className="settings-section-title">
               <KeyRound size={20} />
               <div>
-                <h2>Интеллект</h2>
+                <h2>Провайдеры</h2>
                 <p>Подключённые провайдеры</p>
               </div>
             </div>
@@ -331,7 +326,7 @@ export function Settings() {
             <div className="settings-section-title">
               <Smartphone size={20} />
               <div>
-                <h2>Ощущение приложения</h2>
+                <h2>Интерфейс</h2>
               </div>
             </div>
             <Toggle
@@ -342,21 +337,10 @@ export function Settings() {
             />
           </section>
           <section className="about-card">
-            <div className="eyebrow">INDEPENDENT SOFTWARE / 2026</div>
-            <h3>
-              Собрано с вайбом.
-              <br />
-              <em>Для настоящей работы.</em>
-            </h3>
-            <p>OpenCode Pocket — независимый мобильный клиент OpenCode.</p>
             <div>
               <ExternalLink href="https://github.com/HVHBIGNAME/OpenCodePocket">
                 <Github size={16} />
                 Исходники
-              </ExternalLink>
-              <ExternalLink href="https://github.com/HVHBIGNAME">
-                <Globe size={15} />
-                HVHBIGNAME
               </ExternalLink>
             </div>
           </section>

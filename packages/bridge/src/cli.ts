@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 import { parseArgs } from 'node:util';
-import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createBridge } from './server';
 import {
@@ -14,8 +13,8 @@ import {
   upstreamAuthorization,
 } from './setup';
 import { pushFromEnvironment } from './push';
-import { z } from 'zod';
 import { reportOptions } from './reports';
+import { managePocket, requestPairing } from './management';
 
 async function main() {
   const { values, positionals } = parseArgs({
@@ -30,17 +29,22 @@ async function main() {
       help: { type: 'boolean', short: 'h' },
       origin: { type: 'string', multiple: true },
       'local-reports': { type: 'boolean' },
+      'no-open': { type: 'boolean' },
     },
   });
   const command = positionals[0] ?? 'help';
   if (values.help || command === 'help') {
-    console.log(`OpenCode Pocket / OCC 1.0.0
+    console.log(`OpenCode Pocket / OCC
 
-  occ-pocket install --tunnel       Install the auto-start OpenCode plugin (cloudflared required)
+  occ-pocket install               Install plugin + commands; download cloudflared automatically
   occ-pocket install --lan          Install for Wi-Fi / VPN; listens on all interfaces
   occ-pocket install --url URL      Install behind an existing HTTPS tunnel
   occ-pocket start --tunnel         Run the companion without a plugin
   occ-pocket pair                  Generate another single-use pairing QR
+  occ-pocket status                Check connection and paired devices
+  occ-pocket config --lan          Save Wi-Fi/VPN mode (restart OpenCode to apply)
+  occ-pocket config --tunnel       Save automatic tunnel mode
+  occ-pocket config --name NAME    Change the computer name
 
 Reports: redacted client diagnostics are queued locally and mirrored to
 HVHBIGNAME/OpenCodePocket Issues using gh auth on this computer.
@@ -49,45 +53,56 @@ Use --local-reports to keep reports on this computer only.
 Options: --upstream http://127.0.0.1:4096  --port 4141  --name NAME
          --origin http://127.0.0.1:1420 (development browser, repeatable)
 
-Restart OpenCode after installing. Start it with: opencode --port 4096
+Restart OpenCode after installing, then use /pocket, /pocket-qr, /pocket-config.
+The installer enables the local HTTP port when no port is configured.
 Keep existing sessions: use the port of the running OpenCode server as --upstream.
 Config: ${join(stateHome(), 'bridge.json')}`);
     return;
   }
   const saved = await readSettings();
+  if ([values.url, values.tunnel, values.lan].filter(Boolean).length > 1)
+    throw new Error('Choose only one connection mode: --tunnel, --lan or --url');
   const settings = SettingsSchema.parse({
     ...saved,
     ...(values.port ? { port: Number(values.port) } : {}),
     ...(values.name ? { name: values.name } : {}),
     ...(values.upstream ? { upstream: values.upstream } : {}),
     ...(values.url ? { publicUrl: values.url, tunnel: false } : {}),
-    ...(values.tunnel ? { tunnel: true, hostname: '127.0.0.1' } : {}),
-    ...(values.lan ? { tunnel: false, hostname: '0.0.0.0' } : {}),
+    ...(values.tunnel ? { tunnel: true, hostname: '127.0.0.1', publicUrl: undefined } : {}),
+    ...(values.lan ? { tunnel: false, hostname: '0.0.0.0', publicUrl: undefined } : {}),
     ...(values.origin ? { origins: values.origin } : {}),
     ...(values['local-reports'] ? { reportsGithub: false } : {}),
   });
   if (command === 'install') {
     const destination = await installPlugin(settings);
     console.log(
-      `\nInstalled: ${destination}\n\nRestart OpenCode: opencode --port 4096\nThen run: occ-pocket pair\nThe plugin also writes a local pairing.html page.\n`,
+      `\nInstalled: ${destination}\n\nRestart OpenCode, then run /pocket-qr.\n/pocket opens the menu; /pocket-config changes connection settings.\n`,
     );
     return;
   }
   if (command === 'pair') {
-    const runtime = z
-      .object({ url: z.string(), controlToken: z.string() })
-      .parse(JSON.parse(await readFile(join(stateHome(), 'runtime.json'), 'utf8')));
-    const response = await fetch(`${runtime.url}/occ/local/pair`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-OCC-Control': runtime.controlToken },
-      body: JSON.stringify({ url: values.url }),
-      signal: AbortSignal.timeout(10_000),
-    });
-    if (!response.ok) throw new Error(`Pairing failed (${response.status}). Is the OCC plugin running?`);
-    const pair = z
-      .object({ link: z.string(), url: z.string(), name: z.string(), expires: z.number() })
-      .parse(await response.json());
-    await displayPairing(pair, true);
+    console.log(await requestPairing(!values['no-open'], true, values.url));
+    return;
+  }
+  if (command === 'status') {
+    console.log(JSON.stringify(await managePocket({ action: 'status' }), null, 2));
+    return;
+  }
+  if (command === 'config') {
+    console.log(
+      JSON.stringify(
+        await managePocket({
+          action: Object.keys(values).length ? 'configure' : 'settings',
+          mode: values.lan ? 'lan' : values.tunnel ? 'tunnel' : values.url ? 'custom' : undefined,
+          url: values.url,
+          name: values.name,
+          port: values.port ? Number(values.port) : undefined,
+          reportsGithub: values['local-reports'] ? false : undefined,
+        }),
+        null,
+        2,
+      ),
+    );
     return;
   }
   if (command !== 'start') throw new Error(`Unknown command: ${command}. See --help.`);
@@ -97,6 +112,7 @@ Config: ${join(stateHome(), 'bridge.json')}`);
     upstreamAuthorization: upstreamAuthorization(),
     push: pushFromEnvironment(),
     reports: reportOptions(settings),
+    pairingReady: false,
   });
   let tunnel: Awaited<ReturnType<typeof cloudflareTunnel>> | undefined;
   try {

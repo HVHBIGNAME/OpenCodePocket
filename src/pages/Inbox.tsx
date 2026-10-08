@@ -1,4 +1,4 @@
-import { Bell, ChevronRight, Inbox as InboxIcon, RefreshCw } from 'lucide-react';
+import { ChevronRight, Inbox as InboxIcon, RefreshCw } from 'lucide-react';
 import { usePocket } from '../store/PocketProvider';
 import { PermissionCard, QuestionCard } from '../components/Requests';
 import { Button, EmptyState, IconButton } from '../components/ui';
@@ -10,11 +10,9 @@ export function Inbox() {
     <div className="page inbox-page">
       <div className="page-heading">
         <div>
-          <span className="eyebrow">ВОПРОСЫ И ДОСТУП</span>
           <h1>
             Запросы<span className="heading-count">{pendingCount}</span>
           </h1>
-          <p>Твой ответ продолжит работу на компьютере.</p>
         </div>
         <IconButton
           label="Обновить запросы"
@@ -42,7 +40,7 @@ export function Inbox() {
         <section className="panel">
           <EmptyState
             icon={<InboxIcon size={32} />}
-            title="Можно выдохнуть"
+            title="Нет запросов"
             action={
               <Button variant="secondary" onClick={() => setScreen('sessions')}>
                 Вернуться к сессиям
@@ -54,14 +52,6 @@ export function Inbox() {
           </EmptyState>
         </section>
       )}
-      <button className="notification-prompt" onClick={() => setScreen('settings')}>
-        <Bell size={20} />
-        <span>
-          <strong>Будь на связи, даже когда OCC закрыт</strong>
-          <small>Настроить уведомления устройства</small>
-        </span>
-        <ChevronRight size={17} />
-      </button>
     </div>
   );
   function RequestSession({ sessionID }: { sessionID: string }) {

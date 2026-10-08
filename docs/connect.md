@@ -3,31 +3,43 @@
 ## Требования
 
 - OpenCode с HTTP API (`/global/health`, `/session`, `/permission`, `/question`). OCC ориентирован на OpenCode 1.18.x и совместимый v1 HTTP API новых версий.
-- Node.js 22+ для CLI/моста. Плагин запускается внутри OpenCode.
-- Для автоматического публичного туннеля — `cloudflared` в PATH. Он отдельно устанавливается через `winget install Cloudflare.cloudflared`, `brew install cloudflared` или менеджер пакетов Linux.
+- OpenCode 1.18.34+ для встроенных TUI-меню. Серверные команды доступны также в desktop через агента.
+- Установщик сам скачивает Node.js, если его нет, и `cloudflared`. Уже установленный `cloudflared` используется повторно.
 
 ## 1. Установить companion
 
-```sh
-npm install -g https://github.com/HVHBIGNAME/OpenCodePocket/releases/download/v1.0.0/hvhbigname-occ-bridge-1.0.0.tgz
-occ-pocket install --tunnel
-```
+**Windows:** [скачать Install-Pocket.cmd](https://github.com/HVHBIGNAME/OpenCodePocket/releases/download/v1.0.1/Install-Pocket.cmd) и запустить двойным щелчком. Права администратора не нужны.
 
-Без глобальной установки:
+**macOS / Linux:**
 
 ```sh
-npx --yes --package=https://github.com/HVHBIGNAME/OpenCodePocket/releases/download/v1.0.0/hvhbigname-occ-bridge-1.0.0.tgz occ-pocket install --tunnel
+curl -fsSL https://github.com/HVHBIGNAME/OpenCodePocket/releases/download/v1.0.1/install-pocket.sh | sh
 ```
 
-Установщик помещает самостоятельный `occ-pocket.js` в `~/.config/opencode/plugins/`. Существующий `opencode.json` не требуется менять. Старый файл OCC-плагина при обновлении копируется в `occ-pocket/occ-pocket.previous.js`. Перезапусти OpenCode после установки или обновления.
-
-## 2. Запустить OpenCode с доступным API
+Если Node.js 22+ уже установлен:
 
 ```sh
-opencode --port 4096
+npx --yes --package=https://github.com/HVHBIGNAME/OpenCodePocket/releases/download/v1.0.1/hvhbigname-occ-bridge-1.0.1.tgz occ-pocket install
 ```
 
-Плагин сам поднимет мост на `127.0.0.1:4141`, подключит его к серверу текущего процесса и создаст Cloudflare Quick Tunnel. Страница QR появится в `~/.config/opencode/occ-pocket/pairing.html`.
+Установщик помещает самостоятельный `occ-pocket.js` в `~/.config/opencode/plugins/`, добавляет TUI-модуль в `tui.json`/`tui.jsonc` и настраивает HTTP-порт 4096, только если порт не задан. Существующие плагины, поля и комментарии JSONC сохраняются; изменённые конфиги получают `.occ-backup`. Старый OCC-плагин копируется в `occ-pocket/occ-pocket.previous.js`. Перезапусти OpenCode после установки или обновления.
+
+## 2. Перезапустить OpenCode
+
+```sh
+opencode
+```
+
+Плагин поднимет мост на `127.0.0.1:4141` и подключит его к серверу текущего процесса. После проверки туннеля QR доступен по **`/pocket-qr`** и в `~/.config/opencode/occ-pocket/pairing.html`. Не запускай одновременно старый standalone-мост и автозапуск плагина на одном порту.
+
+| Команда OpenCode | Действие |
+| --- | --- |
+| `/pocket` | Меню подключения в TUI; краткая справка и статус в desktop |
+| `/pocket-qr` | Новый одноразовый QR, открывается в браузере ПК |
+| `/pocket-status` | Состояние соединения, адрес и подключённые устройства |
+| `/pocket-config` | Туннель/LAN/свой URL, имя, порт и отчёты |
+
+В TUI команды выполняются локально без обращения к модели. В desktop команды используют инструмент `pocket_manage` через агента. Сам код QR и токен управления в ответ инструмента не попадают. Для применения сохранённых настроек подключения перезапусти OpenCode.
 
 Если API защищён паролем, процесс моста/плагина должен иметь те же `OPENCODE_SERVER_PASSWORD` и `OPENCODE_SERVER_USERNAME`. По умолчанию логин `opencode`.
 
@@ -48,7 +60,7 @@ occ-pocket start --upstream http://127.0.0.1:4096 --tunnel
 Каждый QR действует **10 минут, один раз**. Для второго телефона/повторной попытки:
 
 ```sh
-occ-pocket pair
+/pocket-qr
 ```
 
 Разрешён максимум 12 попыток в минуту на адрес клиента. За туннелем этот лимит может делиться между телефонами. Постоянные ключи устройств сохраняются на компьютере только в виде SHA-256-хешей. В телефоне — в Keystore/Keychain.
@@ -95,4 +107,6 @@ HTTP разрешён только для локальных адресов, `.l
 | На Wi-Fi не подключается | AP isolation, firewall, неверный сетевой адаптер, фоновые VPN. |
 | В браузере CORS | Добавь `--origin http://127.0.0.1:1420` к standalone-мосту. |
 
-Настройки моста: `~/.config/opencode/occ-pocket/bridge.json`. `OCC_STATE_DIR` позволяет задать отдельную директорию состояния; `OPENCODE_CONFIG_DIR` / `XDG_CONFIG_HOME` учитываются установщиком.
+Настройки моста: `~/.config/opencode/occ-pocket/bridge.json`. `OCC_STATE_DIR` позволяет задать отдельную директорию состояния; `OPENCODE_CONFIG_DIR` / `XDG_CONFIG_HOME` учитываются установщиком. Без глобальной npm-установки CLI доступен как `node ~/.config/opencode/occ-pocket/cli.mjs`.
+
+**Cloudflare 530:** публичный адрес выдан, но соединение не работает. В новой версии такой QR не показывается как готовый. Выбери LAN через `/pocket-config`, перезапусти OpenCode и получи новый QR; iPhone должен быть в той же локальной сети. HTTP-соединению на iOS требуется разрешение «Локальная сеть».

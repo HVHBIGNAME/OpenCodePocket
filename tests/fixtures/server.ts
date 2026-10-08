@@ -2,7 +2,7 @@ import { createServer, type ServerResponse } from 'node:http';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createBridge } from '../../packages/bridge/src/server';
-import type { Config, MessageEntry, Session } from '../../src/types';
+import type { Config, Message, MessageEntry, Part, Session } from '../../src/types';
 
 const output = new Set<ServerResponse>();
 const directory = 'C:/coding/emberdeck';
@@ -191,7 +191,7 @@ async function startBridge() {
     port: 4142,
     stateDirectory,
     name: 'DESKTOP-1337',
-    origins: ['http://127.0.0.1:1420'],
+    origins: [`http://127.0.0.1:${process.env.OCC_E2E_PORT ?? 1420}`],
     log: console.error,
   });
 }
@@ -218,6 +218,20 @@ const server = createServer((request, response) => {
     if (url.pathname === '/__test/event') {
       const type = String(payload.type);
       const properties = payload.properties as Record<string, unknown>;
+      if (type === 'message.updated') {
+        const info = properties.info as Message;
+        const entry = messages[info.sessionID]?.find((item) => item.info.id === info.id);
+        if (entry) entry.info = info;
+      }
+      if (type === 'message.part.updated') {
+        const part = properties.part as Part;
+        const entry = messages[part.sessionID]?.find((item) => item.info.id === part.messageID);
+        if (entry) {
+          const index = entry.parts.findIndex((item) => item.id === part.id);
+          if (index < 0) entry.parts.push(part);
+          else entry.parts[index] = part;
+        }
+      }
       if (type === 'message.part.delta') {
         const part = messages[String(properties.sessionID)]
           ?.find((entry) => entry.info.id === properties.messageID)

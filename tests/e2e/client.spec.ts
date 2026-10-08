@@ -1,5 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import { mkdir } from 'node:fs/promises';
+import { randomBytes } from 'node:crypto';
+import sharp from 'sharp';
 
 async function connect(page: Page) {
   await page.request.post('http://127.0.0.1:4097/__test/reset');
@@ -69,7 +71,7 @@ test('answers a question step by step, preserves answers when going back, and ap
   await expect(page.getByRole('checkbox', { name: /Passkeys/ })).toBeChecked();
   await page.getByRole('button', { name: 'Отправить ответ' }).click();
   await page.getByRole('button', { name: 'Разрешить', exact: true }).click();
-  await expect(page.getByText('Можно выдохнуть', { exact: true })).toBeVisible();
+  await expect(page.getByText('Нет запросов', { exact: true })).toBeVisible();
   const state = await (await page.request.get('http://127.0.0.1:4097/__test/state')).json();
   expect(state.replies).toEqual([
     { kind: 'question', id: 'que_auth', answers: [['Redis'], ['OAuth', 'Passkeys']] },
@@ -211,6 +213,140 @@ test('automatically queues a redacted failure and allows opting out', async ({ p
   });
   await page.waitForTimeout(500);
   expect(uploads.length).toBe(count);
+});
+
+test('keeps server errors compact and reveals complete details on demand', async ({ page }) => {
+  await connect(page);
+  const message = `Failed to load plugin old-plugin@latest: ${'C:/very-long-module-path/'.repeat(30)}missing`;
+  await page.request.post('http://127.0.0.1:4097/__test/event', {
+    data: { type: 'session.error', properties: { error: { data: { message } } } },
+  });
+  const alert = page.getByRole('alert');
+  await expect(alert).toBeVisible();
+  expect((await alert.boundingBox())!.height).toBeLessThan(160);
+  await alert.getByRole('button', { name: 'Подробнее' }).click();
+  await expect(page.getByRole('dialog')).toContainText(message);
+});
+
+test('shows streamed reasoning when supplied and reports cancellation once in Russian', async ({ page }) => {
+  await connect(page);
+  await page.getByRole('button', { name: /Панель управления — новая архитектура/ }).click();
+  await expect(page.getByText('Предлагаемая структура', { exact: true })).toBeVisible();
+  const part = {
+    id: 'prt_reason',
+    messageID: 'msg_answer',
+    sessionID: 'ses_panel',
+    type: 'reasoning',
+    text: 'Проверю зависимости.',
+    time: { start: Date.now() },
+  };
+  await page.request.post('http://127.0.0.1:4097/__test/event', {
+    data: { type: 'message.part.updated', properties: { part } },
+  });
+  const reasoning = page.locator('.reasoning-block');
+  await expect(reasoning).toHaveAttribute('open', '');
+  await expect(reasoning).toContainText(part.text);
+  await page.request.post('http://127.0.0.1:4097/__test/event', {
+    data: {
+      type: 'message.part.delta',
+      properties: {
+        sessionID: part.sessionID,
+        messageID: part.messageID,
+        partID: part.id,
+        field: 'text',
+        delta: ' Затем выполню проверку.',
+      },
+    },
+  });
+  await expect(reasoning).toContainText('Затем выполню проверку.');
+  const history = await (await page.request.get('http://127.0.0.1:4097/session/ses_panel/message')).json();
+  const error = { name: 'MessageAbortedError', data: { message: 'The operation was aborted.' } };
+  await page.request.post('http://127.0.0.1:4097/__test/event', {
+    data: { type: 'message.updated', properties: { info: { ...history[1].info, error } } },
+  });
+  await page.request.post('http://127.0.0.1:4097/__test/event', {
+    data: { type: 'session.error', properties: { sessionID: 'ses_panel', error } },
+  });
+  await expect(page.getByText('Генерация отменена', { exact: true })).toHaveCount(1);
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  await expect(page.getByText('The operation was aborted.', { exact: true })).toHaveCount(0);
+});
+
+test('prepares a phone photo, retains it after a failed send, and uploads it on retry', async ({ page }) => {
+  await connect(page);
+  await page.getByRole('button', { name: /Панель управления — новая архитектура/ }).click();
+  const photo = await sharp(randomBytes(1200 * 800 * 3), { raw: { width: 1200, height: 800, channels: 3 } })
+    .png()
+    .toBuffer();
+  await page
+    .locator('input[type="file"]')
+    .setInputFiles({ name: 'Фото.png', mimeType: 'image/png', buffer: photo });
+  await expect(page.locator('.composer-attachments')).toContainText('Фото.jpg');
+  await page.getByLabel('Промпт для OpenCode').fill('Проверь вложение');
+  await page.route(
+    '**/prompt_async?*',
+    (route) =>
+      route.fulfill({
+        status: 503,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: 'Временная ошибка загрузки' }),
+      }),
+    { times: 1 },
+  );
+  await page.getByRole('button', { name: 'Отправить промпт' }).click();
+  await expect(page.getByRole('alert')).toContainText('Временная ошибка загрузки');
+  await expect(page.locator('.composer-attachments')).toContainText('Фото.jpg');
+  await expect(page.getByLabel('Промпт для OpenCode')).toHaveValue('Проверь вложение');
+  await page.getByRole('button', { name: 'Скрыть сообщение' }).click();
+  await page.getByRole('button', { name: 'Отправить промпт' }).click();
+  await expect(page.locator('.composer-attachments')).toHaveCount(0);
+  const state = await (await page.request.get('http://127.0.0.1:4097/__test/state')).json();
+  expect(state.prompts).toHaveLength(1);
+  const attachment = state.prompts[0].parts.find((part: { type: string }) => part.type === 'file');
+  expect(attachment.mime).toBe('image/jpeg');
+  expect(attachment.filename).toBe('Фото.jpg');
+  expect(attachment.url).toMatch(/^data:image\/jpeg;base64,/);
+  expect(attachment.url.length).toBeLessThan(1_500_000);
+});
+
+test('keeps input scale and chat width stable across keyboard-sized viewports and dismisses focus outside fields', async ({
+  page,
+}) => {
+  await connect(page);
+  const search = page.getByLabel('Поиск сессий');
+  await search.fill('Панель');
+  expect(
+    await search.evaluate((input) => parseFloat(getComputedStyle(input).fontSize)),
+  ).toBeGreaterThanOrEqual(16);
+  await page.getByRole('heading', { name: /Сессии/ }).click();
+  await expect(search).not.toBeFocused();
+  await page.getByRole('button', { name: /Панель управления — новая архитектура/ }).click();
+  const original = page.viewportSize()!;
+  const input = page.getByLabel('Промпт для OpenCode');
+  for (const height of [440, original.height, 330, original.height]) {
+    await input.fill('Проверка клавиатуры');
+    await page.setViewportSize({ width: original.width, height });
+    await expect(page.getByRole('button', { name: 'Отправить промпт' })).toBeInViewport();
+    await expect
+      .poll(() => page.locator('.app-chat').evaluate((element) => element.getBoundingClientRect().height))
+      .toBe(height);
+    expect(
+      await input.evaluate((element) => parseFloat(getComputedStyle(element).fontSize)),
+    ).toBeGreaterThanOrEqual(16);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(
+      true,
+    );
+    await page.locator('.chat-heading h1').click();
+    await expect(input).not.toBeFocused();
+  }
+  await tab(page, 'Настройки');
+  await page.setViewportSize({ width: 320, height: original.height });
+  await expect(page.getByRole('combobox', { name: 'Чтение файлов', exact: true })).toBeVisible();
+  const sizes = await page
+    .locator('input:visible, textarea:visible, select:visible')
+    .evaluateAll((fields) => fields.map((field) => parseFloat(getComputedStyle(field).fontSize)));
+  expect(sizes.length).toBeGreaterThan(0);
+  expect(sizes.every((size) => size >= 16)).toBe(true);
 });
 
 test('mobile release screenshots and absence of desktop navigation', async ({ page }, info) => {

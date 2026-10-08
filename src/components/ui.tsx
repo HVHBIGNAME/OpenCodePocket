@@ -76,7 +76,6 @@ export function Modal({
       <div className="modal-inner">
         <div className="modal-header">
           <div>
-            <span className="eyebrow">OPEN CODE / POCKET</span>
             <h2>{title}</h2>
             {subtitle && <p className="muted">{subtitle}</p>}
           </div>

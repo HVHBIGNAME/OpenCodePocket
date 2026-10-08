@@ -1,14 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
-import { ArrowRight, Check, ChevronRight, Laptop, Plus, QrCode, ShieldCheck, Trash2 } from 'lucide-react';
-import { normalizeServerUrl, parsePairing } from '../../shared/protocol';
+import { ArrowRight, Check, ChevronRight, Laptop, Plus, QrCode, Trash2 } from 'lucide-react';
+import { APP_VERSION, normalizeServerUrl, parsePairing } from '../../shared/protocol';
 import { usePocket } from '../store/PocketProvider';
 import { errorMessage, pairDevice } from '../lib/api';
 import { platform } from '../lib/native';
 import { captureDiagnostic } from '../lib/diagnostics';
 import { Button, CopyButton, ExternalLink, IconButton, Modal } from './ui';
 
-const installCommand =
-  'npx --yes --package=https://github.com/HVHBIGNAME/OpenCodePocket/releases/download/v1.0.0/hvhbigname-occ-bridge-1.0.0.tgz occ-pocket install --tunnel';
+const installCommand = `npx --yes --package=https://github.com/HVHBIGNAME/OpenCodePocket/releases/download/v${APP_VERSION}/hvhbigname-occ-bridge-${APP_VERSION}.tgz occ-pocket install`;
 
 export function ConnectModal() {
   const {
@@ -102,11 +101,7 @@ export function ConnectModal() {
     }
   }
   return (
-    <Modal
-      title={adding ? 'Подключим компьютер' : 'Твои подключения'}
-      subtitle={adding ? 'Открой QR-код OCC на компьютере.' : 'Выбери, где продолжить работу.'}
-      onClose={() => setConnectOpen(false)}
-    >
+    <Modal title={adding ? 'Подключить компьютер' : 'Подключения'} onClose={() => setConnectOpen(false)}>
       {!adding ? (
         <div className="form-stack">
           <div className="saved-connections">
@@ -264,32 +259,29 @@ export function ConnectModal() {
           <details className="connect-instructions">
             <summary>Как подготовить компьютер?</summary>
             <ol>
-              <li>Установи Node.js 22+ и cloudflared.</li>
               <li>
-                Выполни команду:
+                <ExternalLink
+                  href={`https://github.com/HVHBIGNAME/OpenCodePocket/releases/download/v${APP_VERSION}/Install-Pocket.cmd`}
+                >
+                  Windows: скачать установщик
+                </ExternalLink>
+              </li>
+              <li>
+                Или выполни команду на ПК с Node.js 22+:
                 <div className="command-block">
                   <code>{installCommand}</code>
                   <CopyButton text={installCommand} />
                 </div>
               </li>
+              <li>Перезапусти OpenCode.</li>
               <li>
-                Перезапусти OpenCode: <code>opencode --port 4096</code>.
-              </li>
-              <li>
-                Открой <code>~/.config/opencode/occ-pocket/pairing.html</code>.
+                В OpenCode выполни <code>/pocket-qr</code>.
               </li>
             </ol>
             <ExternalLink href="https://github.com/HVHBIGNAME/OpenCodePocket/blob/main/docs/connect.md">
               Полная инструкция
             </ExternalLink>
           </details>
-          <p className="secure-note">
-            <ShieldCheck size={17} />
-            <span>
-              Ключ сохраняется в защищённом хранилище телефона. Обезличенные автоотчёты можно отключить в
-              настройках.
-            </span>
-          </p>
         </>
       )}
     </Modal>

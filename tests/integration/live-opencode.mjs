@@ -59,6 +59,8 @@ async function request(path, options = {}, bridge = false) {
     ...options,
     headers: { 'Content-Type': 'application/json', Authorization: auth, ...options.headers },
     signal: AbortSignal.timeout(90000),
+  }).catch((error) => {
+    throw new Error(`Request failed: ${path}`, { cause: error });
   });
   if (!response.ok)
     throw new Error(`${path}: HTTP ${response.status} ${(await response.text()).slice(0, 400)}`);
@@ -82,6 +84,12 @@ try {
     body: JSON.stringify({ title: 'OCC live integration QA' }),
   });
   assert(session.id);
+  const commands = await request('/command');
+  for (const name of ['pocket', 'pocket-qr', 'pocket-status', 'pocket-config'])
+    assert(
+      commands.some((command) => command.name === name),
+      `Missing command ${name}`,
+    );
   const runtime = JSON.parse(await readFile(join(state, 'runtime.json'), 'utf8'));
   const pair = await request(
     '/occ/local/pair',
@@ -109,7 +117,7 @@ try {
     await request(endpoint, { headers }, true);
   }
   console.log(
-    'PASS installed plugin, real server authentication, pairing, session/provider/agent/config/question/permission APIs',
+    'PASS installed plugin, Pocket commands, real server authentication, pairing, session/provider/agent/config/question/permission APIs',
   );
   await request(
     '/api/global/config',
