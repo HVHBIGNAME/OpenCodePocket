@@ -10,16 +10,22 @@ export function isPrivateHost(host: string): boolean {
   const pieces = name.split('.').map(Number);
   if (pieces.length !== 4 || pieces.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) return false;
   const [a, b] = pieces;
-  return a === 127 || a === 10 || (a === 192 && b === 168) ||
+  return (
+    a === 127 ||
+    a === 10 ||
+    (a === 192 && b === 168) ||
     (a === 172 && b !== undefined && b >= 16 && b <= 31) ||
-    (a === 100 && b !== undefined && b >= 64 && b <= 127);
+    (a === 100 && b !== undefined && b >= 64 && b <= 127)
+  );
 }
 
 export function normalizeServerUrl(input: string): string {
   const url = new URL(input.trim());
   if (!['http:', 'https:'].includes(url.protocol)) throw new Error('Нужен адрес http:// или https://');
-  if (url.username || url.password || url.search || url.hash) throw new Error('Укажите адрес сервера без пароля, параметров и #');
-  if (url.protocol === 'http:' && !isPrivateHost(url.hostname)) throw new Error('Для публичного сервера требуется HTTPS. HTTP доступен в локальной сети или VPN.');
+  if (url.username || url.password || url.search || url.hash)
+    throw new Error('Укажите адрес сервера без пароля, параметров и #');
+  if (url.protocol === 'http:' && !isPrivateHost(url.hostname))
+    throw new Error('Для публичного сервера требуется HTTPS. HTTP доступен в локальной сети или VPN.');
   return url.toString().replace(/\/+$/, '');
 }
 
@@ -54,14 +60,16 @@ export type ServerEvent = {
 export function decodeEvent(value: unknown): ServerEvent | undefined {
   if (!value || typeof value !== 'object') return;
   const envelope = value as Record<string, unknown>;
-  const inner = envelope.payload && typeof envelope.payload === 'object'
-    ? envelope.payload as Record<string, unknown> : envelope;
+  const inner =
+    envelope.payload && typeof envelope.payload === 'object'
+      ? (envelope.payload as Record<string, unknown>)
+      : envelope;
   if (typeof inner.type !== 'string') return;
   const properties = inner.properties ?? inner.data;
   return {
     id: typeof inner.id === 'string' ? inner.id : undefined,
     type: inner.type,
-    properties: properties && typeof properties === 'object' ? properties as Record<string, unknown> : {},
+    properties: properties && typeof properties === 'object' ? (properties as Record<string, unknown>) : {},
     directory: typeof envelope.directory === 'string' ? envelope.directory : undefined,
   };
 }
@@ -102,7 +110,9 @@ export class SseDecoder {
   }
 }
 
-export function notificationFor(event: ServerEvent): { title: string; body: string; sessionID?: string } | undefined {
+export function notificationFor(
+  event: ServerEvent,
+): { title: string; body: string; sessionID?: string } | undefined {
   const sessionID = typeof event.properties.sessionID === 'string' ? event.properties.sessionID : undefined;
   if (event.type === 'permission.asked' || event.type === 'permission.v2.asked') {
     return { title: 'OpenCode ждёт разрешения', body: 'Откройте OCC, чтобы проверить действие.', sessionID };
@@ -110,6 +120,11 @@ export function notificationFor(event: ServerEvent): { title: string; body: stri
   if (event.type === 'question.asked' || event.type === 'question.v2.asked') {
     return { title: 'У OpenCode есть вопрос', body: 'Ваш ответ нужен для продолжения работы.', sessionID };
   }
-  if (event.type === 'session.error') return { title: 'OpenCode: нужна помощь', body: 'В сессии произошла ошибка. Подробности в OCC.', sessionID };
+  if (event.type === 'session.error')
+    return {
+      title: 'OpenCode: нужна помощь',
+      body: 'В сессии произошла ошибка. Подробности в OCC.',
+      sessionID,
+    };
   return;
 }

@@ -8,7 +8,12 @@ interface PocketNativePlugin {
   readSecure(options: { key: string }): Promise<{ value?: string }>;
   writeSecure(options: { key: string; value: string }): Promise<void>;
   removeSecure(options: { key: string }): Promise<void>;
-  startEvents(options: { url: string; authorization: string; notifications: boolean; name: string }): Promise<void>;
+  startEvents(options: {
+    url: string;
+    authorization: string;
+    notifications: boolean;
+    name: string;
+  }): Promise<void>;
   stopEvents(): Promise<void>;
   startSpeech(options: { locale: string; offline: boolean }): Promise<void>;
   stopSpeech(): Promise<void>;
@@ -17,7 +22,10 @@ interface PocketNativePlugin {
   addListener(name: 'serverEvent', listener: (event: NativeEvent) => void): Promise<PluginListenerHandle>;
   addListener(name: 'connection', listener: (event: NativeConnection) => void): Promise<PluginListenerHandle>;
   addListener(name: 'speech', listener: (event: SpeechEvent) => void): Promise<PluginListenerHandle>;
-  addListener(name: 'notificationTap', listener: (event: { sessionID?: string }) => void): Promise<PluginListenerHandle>;
+  addListener(
+    name: 'notificationTap',
+    listener: (event: { sessionID?: string }) => void,
+  ): Promise<PluginListenerHandle>;
 }
 
 export const PocketNative = registerPlugin<PocketNativePlugin>('PocketNative');
@@ -28,9 +36,12 @@ export const platform = Capacitor.getPlatform();
 const browserVault = new Map<string, string>();
 
 export async function vaultRead<T>(key: string): Promise<T | undefined> {
-  if (!isNative) { const value = browserVault.get(key); return value ? JSON.parse(value) as T : undefined; }
+  if (!isNative) {
+    const value = browserVault.get(key);
+    return value ? (JSON.parse(value) as T) : undefined;
+  }
   const { value } = await PocketNative.readSecure({ key });
-  return typeof value === 'string' ? JSON.parse(value) as T : undefined;
+  return typeof value === 'string' ? (JSON.parse(value) as T) : undefined;
 }
 
 export async function vaultWrite(key: string, value: unknown) {

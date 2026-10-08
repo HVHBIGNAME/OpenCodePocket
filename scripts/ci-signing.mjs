@@ -1,7 +1,10 @@
 import { access, writeFile, appendFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-if (!process.env.ANDROID_KEYSTORE_BASE64 || !process.env.OCC_KEYSTORE_PASSWORD) throw new Error('Configure ANDROID_KEYSTORE_BASE64 and ANDROID_KEYSTORE_PASSWORD repository secrets before building.');
+if (!process.env.ANDROID_KEYSTORE_BASE64 || !process.env.OCC_KEYSTORE_PASSWORD)
+  throw new Error(
+    'Configure ANDROID_KEYSTORE_BASE64 and ANDROID_KEYSTORE_PASSWORD repository secrets before building.',
+  );
 const directory = process.env.RUNNER_TEMP;
 if (!directory || !process.env.GITHUB_ENV) throw new Error('This helper runs in GitHub Actions.');
 await access(directory);

@@ -71,9 +71,27 @@ npx playwright install chromium webkit
 npm run test:e2e
 ```
 
-Тесты используют настоящий HTTP companion и отдельный mock OpenCode, без внешних AI-вызовов и расходов. Fixture слушает только localhost (`4097` и `4142`) и не входит в приложение или companion bundle. Браузерные проекты: desktop Chromium, Android viewport Chromium, iOS viewport WebKit.
+Тесты используют настоящий HTTP companion и отдельный mock OpenCode, без внешних AI-вызовов и расходов. Fixture слушает только localhost (`4097` и `4142`) и не входит в приложение или companion bundle. Каждый сценарий получает отдельное состояние companion. Браузерные проекты: компактный Android (360 px), Android / Pixel 7 и iOS / WebKit. Дополнительно проверяется ввод при ширине 320 px и уменьшенной высоте экрана.
 
 Android smoke QA выполняется на локальном эмуляторе отдельным скриптом `tests/native/android-smoke.mjs`. Он требует запущенного fixture, установленного debug APK и `adb`; подробности выводятся при запуске.
+
+```sh
+# В отдельном терминале:
+npx tsx tests/fixtures/server.ts
+# После загрузки эмулятора и установки debug APK:
+node tests/native/android-smoke.mjs emulator-5554
+```
+
+Сценарий сбрасывает тестовые данные OCC на эмуляторе и проверяет нативный HTTP, Keystore, клавиатуру, SSE, фоновое уведомление и восстановление подключения. Изображения сохраняются в `artifacts/screenshots/android-native*.png`.
+
+Для проверки установленного OpenCode с изолированными настройками и данными:
+
+```sh
+npm run build:bridge
+node tests/integration/live-opencode.mjs
+```
+
+При необходимости путь к исполняемому файлу задаётся через `OCC_OPENCODE_BIN`. Этот сценарий проверяет загрузку плагина и API, не отправляя запросы AI-провайдерам.
 
 ## Релиз
 

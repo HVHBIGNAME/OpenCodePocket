@@ -1,17 +1,34 @@
-import { useEffect, useState } from 'react';
-import { ArrowRight, Check, Laptop, Link2, QrCode, Radio, ShieldCheck, Trash2 } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { ArrowRight, Check, ChevronRight, Laptop, Plus, QrCode, ShieldCheck, Trash2 } from 'lucide-react';
 import { normalizeServerUrl, parsePairing } from '../../shared/protocol';
 import { usePocket } from '../store/PocketProvider';
 import { errorMessage, pairDevice } from '../lib/api';
-import { isNative, platform } from '../lib/native';
+import { platform } from '../lib/native';
+import { captureDiagnostic } from '../lib/diagnostics';
 import { Button, CopyButton, ExternalLink, IconButton, Modal } from './ui';
 
-const installCommand = 'npx --yes --package=https://github.com/HVHBIGNAME/OpenCodePocket/releases/download/v1.0.0/hvhbigname-occ-bridge-1.0.0.tgz occ-pocket install --tunnel';
+const installCommand =
+  'npx --yes --package=https://github.com/HVHBIGNAME/OpenCodePocket/releases/download/v1.0.0/hvhbigname-occ-bridge-1.0.0.tgz occ-pocket install --tunnel';
 
 export function ConnectModal() {
-  const { setConnectOpen, connect, connections, client, perform, forget, pairingInput, setPairingInput } = usePocket();
+  const {
+    setConnectOpen,
+    connect,
+    connections,
+    client,
+    perform,
+    forget,
+    pairingInput,
+    setPairingInput,
+    connectIntent,
+    setConnectIntent,
+  } = usePocket();
+  const [adding, setAdding] = useState(
+    !connections.length || Boolean(pairingInput) || connectIntent === 'scan',
+  );
   const [mode, setMode] = useState<'pair' | 'direct'>('pair');
   const [input, setInput] = useState(pairingInput);
+  const [manual, setManual] = useState(connectIntent === 'manual');
   const [url, setUrl] = useState('');
   const [username, setUsername] = useState('opencode');
   const [password, setPassword] = useState('');
@@ -20,34 +37,261 @@ export function ConnectModal() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [removeID, setRemoveID] = useState<string>();
-  useEffect(() => { if (pairingInput) { setInput(pairingInput); setPairingInput(''); } }, [pairingInput, setPairingInput]);
-  async function submit() {
-    setBusy(true); setError('');
-    try {
-      if (mode === 'pair') {
-        const pair = parsePairing(input);
-        await connect(await pairDevice(pair.url, pair.code, `${platform === 'ios' ? 'iPhone' : platform === 'android' ? 'Android' : 'Browser'} · OCC`));
-      } else await connect({ id: crypto.randomUUID(), name, url: normalizeServerUrl(url), mode: 'direct', username, credential: password, directory: directory || undefined });
-    } catch (failure) { setError(errorMessage(failure)); }
-    finally { setBusy(false); }
-  }
+  const scanStarted = useRef(false);
+  useEffect(() => {
+    if (pairingInput) {
+      setInput(pairingInput);
+      setAdding(true);
+      setManual(true);
+      setPairingInput('');
+    }
+  }, [pairingInput, setPairingInput]);
+  useEffect(() => {
+    if (connectIntent === 'scan' && !scanStarted.current) {
+      scanStarted.current = true;
+      setConnectIntent('manual');
+      void scan();
+    }
+  }, [connectIntent, setConnectIntent]);
+
   async function scan() {
     setError('');
     try {
-      const { CapacitorBarcodeScanner, CapacitorBarcodeScannerTypeHint } = await import('@capacitor/barcode-scanner');
-      const result = await CapacitorBarcodeScanner.scanBarcode({ hint: CapacitorBarcodeScannerTypeHint.QR_CODE, scanInstructions: 'Наведите камеру на QR-код OCC на компьютере', scanText: 'Подключить', cancelButtonAccessibilityLabel: 'Отмена' });
-      parsePairing(result.ScanResult); setInput(result.ScanResult);
-    } catch (failure) { setError(errorMessage(failure)); }
+      const { CapacitorBarcodeScanner, CapacitorBarcodeScannerTypeHint } =
+        await import('@capacitor/barcode-scanner');
+      const result = await CapacitorBarcodeScanner.scanBarcode({
+        hint: CapacitorBarcodeScannerTypeHint.QR_CODE,
+        scanInstructions: 'Сканируй QR-код OCC на компьютере',
+        cancelButtonAccessibilityLabel: 'Отмена',
+      });
+      parsePairing(result.ScanResult);
+      setInput(result.ScanResult);
+      setManual(true);
+    } catch (failure) {
+      setError(errorMessage(failure));
+    }
   }
-  return <Modal title="Большой экран. Маленькое расстояние." subtitle="Подключи свой OpenCode — сессии уже ждут." onClose={() => setConnectOpen(false)} wide>
-    {connections.length > 0 && <div className="saved-connections">{connections.map((connection) => <div key={connection.id} className="saved-connection"><Laptop size={20}/><button disabled={busy} onClick={() => { setBusy(true); void perform(() => connect(connection)).finally(() => setBusy(false)); }}><strong>{connection.name}</strong><small>{new URL(connection.url).hostname}</small></button>{client?.connection.id === connection.id && <Check size={16} className="accent"/>}{removeID === connection.id ? <Button variant="danger" onClick={() => void perform(() => forget(connection.id))}>Забыть</Button> : <IconButton label={`Забыть ${connection.name}`} onClick={() => setRemoveID(connection.id)}><Trash2 size={16}/></IconButton>}</div>)}</div>}
-    <div className="connect-layout"><div className="connect-guide"><div className="connect-art"><QrCode size={58}/><span className="scan-corner tl"/><span className="scan-corner tr"/><span className="scan-corner bl"/><span className="scan-corner br"/></div><span className="eyebrow">PAIR. PROMPT. SHIP.</span><h3>Пара кликов —<br/>и ты в потоке.</h3><ol><li><strong>Установи мост на ПК</strong><span>Node.js 22+ и cloudflared для автотуннеля.</span></li><li><strong>Перезапусти OpenCode</strong><span><code>opencode --port 4096</code></span></li><li><strong>Скопируй ссылку или сканируй QR</strong><span>Страница pairing.html или команда occ-pocket pair.</span></li></ol><ExternalLink href="https://github.com/HVHBIGNAME/OpenCodePocket/blob/main/docs/connect.md">Инструкция по подключению</ExternalLink></div>
-    <div className="connect-form"><div className="segmented full"><button className={mode === 'pair' ? 'active' : ''} onClick={() => setMode('pair')}><Link2 size={15}/>OCC-мост</button><button className={mode === 'direct' ? 'active' : ''} onClick={() => setMode('direct')}><Radio size={15}/>Сервер</button></div>
-      <form className="form-stack" onSubmit={(event) => { event.preventDefault(); void submit(); }}>
-      {mode === 'pair' ? <><label>Команда для компьютера<span className="command-block"><code>{installCommand}</code><CopyButton text={installCommand}/></span></label><Button type="button" variant="secondary" onClick={() => void scan()}><QrCode size={18}/>Сканировать QR-код</Button><div className="or-divider"><span>или вставь ссылку</span></div><label>Ссылка подключения<textarea value={input} onChange={(event) => setInput(event.target.value)} placeholder="occ://pair?url=…&code=…" rows={3} spellCheck={false} autoCapitalize="none" /></label><p className="form-hint">QR-код действует 10 минут и только один раз.</p></> : <><label>Название<input value={name} onChange={(event) => setName(event.target.value)} required maxLength={100}/></label><label>Адрес OpenCode<input type="url" value={url} onChange={(event) => setUrl(event.target.value)} placeholder="https://opencode.example.com" required autoCapitalize="none" /></label><div className="field-pair"><label>Логин<input value={username} onChange={(event) => setUsername(event.target.value)} autoCapitalize="none" /></label><label>Пароль<input value={password} type="password" onChange={(event) => setPassword(event.target.value)} autoComplete="off" /></label></div><label>Папка проекта (необязательно)<input value={directory} onChange={(event) => setDirectory(event.target.value)} placeholder="/home/user/project" spellCheck={false}/></label><p className="form-hint">Существующий туннель или локальный IP. Пароль — OPENCODE_SERVER_PASSWORD на ПК.</p></>}
-      {error && <p role="alert" className="inline-error">{error}</p>}
-      <Button type="submit" busy={busy} disabled={mode === 'pair' ? !input.trim() : !url.trim()}>Подключиться<ArrowRight size={17}/></Button>
-      <p className="secure-note"><ShieldCheck size={15}/>{isNative ? 'Ключ хранится в защищённом хранилище устройства.' : 'В браузере ключ живёт только до перезагрузки вкладки.'}</p>
-      </form></div></div>
-  </Modal>;
+  async function submit() {
+    setBusy(true);
+    setError('');
+    try {
+      if (mode === 'pair') {
+        const pair = parsePairing(input);
+        await connect(
+          await pairDevice(
+            pair.url,
+            pair.code,
+            `${platform === 'ios' ? 'iPhone' : platform === 'android' ? 'Android' : 'Preview'} · OCC`,
+          ),
+        );
+      } else
+        await connect({
+          id: crypto.randomUUID(),
+          name,
+          url: normalizeServerUrl(url),
+          mode: 'direct',
+          username,
+          credential: password,
+          directory: directory || undefined,
+        });
+    } catch (failure) {
+      captureDiagnostic(failure, { kind: 'action', operation: 'connect' });
+      setError(errorMessage(failure));
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <Modal
+      title={adding ? 'Подключим компьютер' : 'Твои подключения'}
+      subtitle={adding ? 'Открой QR-код OCC на компьютере.' : 'Выбери, где продолжить работу.'}
+      onClose={() => setConnectOpen(false)}
+    >
+      {!adding ? (
+        <div className="form-stack">
+          <div className="saved-connections">
+            {connections.map((connection) => (
+              <div key={connection.id} className="saved-connection">
+                <Laptop size={23} />
+                <button
+                  disabled={busy}
+                  onClick={() => {
+                    setBusy(true);
+                    void perform(() => connect(connection)).finally(() => setBusy(false));
+                  }}
+                >
+                  <strong>{connection.name}</strong>
+                  <small>{new URL(connection.url).hostname}</small>
+                </button>
+                {client?.connection.id === connection.id && <Check size={19} className="accent" />}
+                {removeID === connection.id ? (
+                  <Button variant="danger" onClick={() => void perform(() => forget(connection.id))}>
+                    Забыть?
+                  </Button>
+                ) : (
+                  <IconButton label={`Забыть ${connection.name}`} onClick={() => setRemoveID(connection.id)}>
+                    <Trash2 size={19} />
+                  </IconButton>
+                )}
+              </div>
+            ))}
+          </div>
+          <Button onClick={() => setAdding(true)}>
+            <Plus size={20} />
+            Добавить компьютер
+          </Button>
+        </div>
+      ) : (
+        <>
+          {connections.length > 0 && (
+            <button className="text-action" onClick={() => setAdding(false)}>
+              ← К сохранённым подключениям
+            </button>
+          )}
+          <div className="segmented full">
+            <button className={mode === 'pair' ? 'active' : ''} onClick={() => setMode('pair')}>
+              OCC-мост
+            </button>
+            <button className={mode === 'direct' ? 'active' : ''} onClick={() => setMode('direct')}>
+              Свой сервер
+            </button>
+          </div>
+          <form
+            className="form-stack connect-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void submit();
+            }}
+          >
+            {mode === 'pair' ? (
+              <>
+                <button type="button" className="scan-card" onClick={() => void scan()}>
+                  <span className="scan-icon">
+                    <QrCode size={34} />
+                  </span>
+                  <span>
+                    <strong>Сканировать QR-код</strong>
+                    <small>Одноразовое безопасное подключение</small>
+                  </span>
+                  <ChevronRight size={20} />
+                </button>
+                {!manual && !input ? (
+                  <button type="button" className="text-action" onClick={() => setManual(true)}>
+                    Вставить ссылку вручную
+                  </button>
+                ) : (
+                  <label>
+                    Ссылка подключения
+                    <textarea
+                      value={input}
+                      onChange={(event) => setInput(event.target.value)}
+                      placeholder="occ://pair?url=…&code=…"
+                      rows={3}
+                      spellCheck={false}
+                      autoCapitalize="none"
+                    />
+                  </label>
+                )}
+                <p className="form-hint">
+                  QR-код действует 10 минут. Для нового кода: <code>occ-pocket pair</code> на компьютере.
+                </p>
+              </>
+            ) : (
+              <>
+                <label>
+                  Адрес OpenCode
+                  <input
+                    type="url"
+                    value={url}
+                    onChange={(event) => setUrl(event.target.value)}
+                    placeholder="https://opencode.example.com"
+                    required
+                    autoCapitalize="none"
+                  />
+                </label>
+                <label>
+                  Название
+                  <input
+                    value={name}
+                    onChange={(event) => setName(event.target.value)}
+                    required
+                    maxLength={100}
+                  />
+                </label>
+                <div className="field-pair">
+                  <label>
+                    Логин
+                    <input
+                      value={username}
+                      onChange={(event) => setUsername(event.target.value)}
+                      autoCapitalize="none"
+                    />
+                  </label>
+                  <label>
+                    Пароль
+                    <input
+                      type="password"
+                      value={password}
+                      onChange={(event) => setPassword(event.target.value)}
+                      autoComplete="off"
+                    />
+                  </label>
+                </div>
+                <details className="extra-options">
+                  <summary>Папка проекта</summary>
+                  <label>
+                    Путь на компьютере
+                    <input
+                      value={directory}
+                      onChange={(event) => setDirectory(event.target.value)}
+                      placeholder="/home/user/project"
+                      spellCheck={false}
+                    />
+                  </label>
+                </details>
+              </>
+            )}
+            {error && (
+              <p role="alert" className="inline-error">
+                {error}
+              </p>
+            )}
+            <Button type="submit" busy={busy} disabled={mode === 'pair' ? !input.trim() : !url.trim()}>
+              Подключиться
+              <ArrowRight size={19} />
+            </Button>
+          </form>
+          <details className="connect-instructions">
+            <summary>Как подготовить компьютер?</summary>
+            <ol>
+              <li>Установи Node.js 22+ и cloudflared.</li>
+              <li>
+                Выполни команду:
+                <div className="command-block">
+                  <code>{installCommand}</code>
+                  <CopyButton text={installCommand} />
+                </div>
+              </li>
+              <li>
+                Перезапусти OpenCode: <code>opencode --port 4096</code>.
+              </li>
+              <li>
+                Открой <code>~/.config/opencode/occ-pocket/pairing.html</code>.
+              </li>
+            </ol>
+            <ExternalLink href="https://github.com/HVHBIGNAME/OpenCodePocket/blob/main/docs/connect.md">
+              Полная инструкция
+            </ExternalLink>
+          </details>
+          <p className="secure-note">
+            <ShieldCheck size={17} />
+            <span>
+              Ключ сохраняется в защищённом хранилище телефона. Обезличенные автоотчёты можно отключить в
+              настройках.
+            </span>
+          </p>
+        </>
+      )}
+    </Modal>
+  );
 }

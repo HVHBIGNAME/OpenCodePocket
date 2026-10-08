@@ -9,12 +9,19 @@ export default defineConfig({
   use: { baseURL: 'http://127.0.0.1:1420', trace: 'retain-on-failure', screenshot: 'only-on-failure' },
   reporter: [['list'], ['html', { open: 'never' }]],
   projects: [
-    { name: 'desktop', use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 1000 } } },
+    {
+      name: 'android-compact',
+      use: { ...devices['Pixel 7'], viewport: { width: 360, height: 800 }, browserName: 'chromium' },
+    },
     { name: 'android-layout', use: { ...devices['Pixel 7'], browserName: 'chromium' } },
     { name: 'ios-webkit', use: { ...devices['iPhone 14'], browserName: 'webkit' } },
   ],
   webServer: [
     { command: 'npm run dev', url: 'http://127.0.0.1:1420', reuseExistingServer: !process.env.CI },
-    { command: 'npx tsx tests/fixtures/server.ts', url: 'http://127.0.0.1:4142/healthz', reuseExistingServer: !process.env.CI },
+    {
+      command: 'npx tsx tests/fixtures/server.ts',
+      url: 'http://127.0.0.1:4142/healthz',
+      reuseExistingServer: !process.env.CI,
+    },
   ],
 });

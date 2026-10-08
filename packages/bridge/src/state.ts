@@ -4,7 +4,10 @@ import { join } from 'node:path';
 import { z } from 'zod';
 
 const DeviceSchema = z.object({
-  id: z.string(), name: z.string(), tokenHash: z.string(), created: z.number(),
+  id: z.string(),
+  name: z.string(),
+  tokenHash: z.string(),
+  created: z.number(),
   pushToken: z.string().optional(),
 });
 export type Device = z.infer<typeof DeviceSchema>;
@@ -29,7 +32,9 @@ export class DeviceStore {
   async load() {
     await mkdir(this.directory, { recursive: true, mode: 0o700 });
     try {
-      this.devices = StateSchema.parse(JSON.parse(await readFile(join(this.directory, 'devices.json'), 'utf8'))).devices;
+      this.devices = StateSchema.parse(
+        JSON.parse(await readFile(join(this.directory, 'devices.json'), 'utf8')),
+      ).devices;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
     }
@@ -43,16 +48,31 @@ export class DeviceStore {
   async pair(name: string) {
     if (this.devices.length >= 100) throw new Error('Device limit reached; revoke an old device.');
     const token = secret();
-    const device: Device = { id: randomBytes(12).toString('hex'), name, tokenHash: digest(token), created: Date.now() };
+    const device: Device = {
+      id: randomBytes(12).toString('hex'),
+      name,
+      tokenHash: digest(token),
+      created: Date.now(),
+    };
     this.devices.push(device);
-    try { await this.save(); } catch (error) { this.devices = this.devices.filter((item) => item.id !== device.id); throw error; }
+    try {
+      await this.save();
+    } catch (error) {
+      this.devices = this.devices.filter((item) => item.id !== device.id);
+      throw error;
+    }
     return { token, deviceID: device.id };
   }
 
   async revoke(id: string) {
     const before = this.devices;
     this.devices = this.devices.filter((device) => device.id !== id);
-    try { await this.save(); } catch (error) { this.devices = before; throw error; }
+    try {
+      await this.save();
+    } catch (error) {
+      this.devices = before;
+      throw error;
+    }
   }
 
   async setPush(id: string, token?: string) {
@@ -60,12 +80,19 @@ export class DeviceStore {
     if (!device) throw new Error('Unknown device');
     const previous = device.pushToken;
     device.pushToken = token;
-    try { await this.save(); } catch (error) { device.pushToken = previous; throw error; }
+    try {
+      await this.save();
+    } catch (error) {
+      device.pushToken = previous;
+      throw error;
+    }
   }
 
   private save() {
     const snapshot = JSON.stringify({ devices: this.devices });
-    const write = this.writes.then(() => atomicJson(join(this.directory, 'devices.json'), JSON.parse(snapshot)));
+    const write = this.writes.then(() =>
+      atomicJson(join(this.directory, 'devices.json'), JSON.parse(snapshot)),
+    );
     this.writes = write.catch(() => undefined);
     return write;
   }

@@ -23,7 +23,9 @@ export class EventRelay {
   attach(response: ServerResponse, deviceID: string, lastID?: string) {
     this.listeners.set(response, deviceID);
     response.on('close', () => this.listeners.delete(response));
-    response.write(`data: ${JSON.stringify({ type: 'occ.connected', properties: { online: this.online } })}\n\n`);
+    response.write(
+      `data: ${JSON.stringify({ type: 'occ.connected', properties: { online: this.online } })}\n\n`,
+    );
     const index = this.history.findIndex((item) => item.id === lastID);
     if (lastID && index < 0) response.write('data: {"type":"occ.resync","properties":{}}\n\n');
     if (index >= 0) for (const item of this.history.slice(index + 1)) response.write(item.frame);
@@ -57,8 +59,14 @@ export class EventRelay {
       signal.addEventListener('abort', stop, { once: true });
       let watchdog = setTimeout(stop, 45_000);
       try {
-        const response = await fetch(url, { headers: { Accept: 'text/event-stream', ...(authorization ? { Authorization: authorization } : {}) },
-          signal: attempt.signal, redirect: 'error' });
+        const response = await fetch(url, {
+          headers: {
+            Accept: 'text/event-stream',
+            ...(authorization ? { Authorization: authorization } : {}),
+          },
+          signal: attempt.signal,
+          redirect: 'error',
+        });
         if (!response.ok || !response.body) throw new Error(`OpenCode events HTTP ${response.status}`);
         this.online = true;
         failures = 0;
@@ -68,20 +76,36 @@ export class EventRelay {
           clearTimeout(watchdog);
           watchdog = setTimeout(stop, 60_000);
           for (const frame of parser.feed(chunk)) {
-            try { const event = decodeEvent(JSON.parse(frame.data)); if (event) this.publish(event); }
-            catch (error) { if (!(error instanceof SyntaxError)) throw error; }
+            try {
+              const event = decodeEvent(JSON.parse(frame.data));
+              if (event) this.publish(event);
+            } catch (error) {
+              if (!(error instanceof SyntaxError)) throw error;
+            }
           }
         }
       } catch (error) {
-        if (!signal.aborted) this.publish({ type: 'occ.upstream', properties: { online: false,
-          message: error instanceof Error && error.name !== 'AbortError' ? error.message : 'OpenCode connection timed out' } });
+        if (!signal.aborted)
+          this.publish({
+            type: 'occ.upstream',
+            properties: {
+              online: false,
+              message:
+                error instanceof Error && error.name !== 'AbortError'
+                  ? error.message
+                  : 'OpenCode connection timed out',
+            },
+          });
       } finally {
         this.online = false;
         clearTimeout(watchdog);
         signal.removeEventListener('abort', stop);
         attempt.abort();
       }
-      if (!signal.aborted) await delay(Math.min(30_000, 1000 * 2 ** Math.min(failures++, 5)), undefined, { signal }).catch(() => undefined);
+      if (!signal.aborted)
+        await delay(Math.min(30_000, 1000 * 2 ** Math.min(failures++, 5)), undefined, { signal }).catch(
+          () => undefined,
+        );
     }
   }
 

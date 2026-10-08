@@ -2,7 +2,6 @@ import Foundation
 import Capacitor
 import UserNotifications
 import UIKit
-import Security
 
 final class PocketBridgeViewController: CAPBridgeViewController {
     override func capacitorDidLoad() { bridge?.registerPluginInstance(PocketNativePlugin()) }
@@ -55,44 +54,25 @@ public class PocketNativePlugin: CAPPlugin, CAPBridgedPlugin, UNUserNotification
         }
     }
 
-    private func vaultQuery(_ call: CAPPluginCall) -> [String: Any]? {
-        guard let key = call.getString("key"), key.hasPrefix("occ."), key.count <= 512 else { call.reject("Invalid vault key"); return nil }
-        return [kSecClass as String: kSecClassGenericPassword,
-                kSecAttrService as String: "dev.hvhbigname.occ.vault", kSecAttrAccount as String: key]
-    }
-
     @objc func readSecure(_ call: CAPPluginCall) {
-        guard var query = vaultQuery(call) else { return }
-        query[kSecReturnData as String] = true
-        query[kSecMatchLimit as String] = kSecMatchLimitOne
-        var result: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
-        if status == errSecItemNotFound { call.resolve([:]); return }
-        guard status == errSecSuccess, let data = result as? Data, let value = String(data: data, encoding: .utf8) else {
-            call.reject("Keychain недоступен (\(status)). Разблокируйте устройство и повторите."); return
-        }
-        call.resolve(["value": value])
+        do {
+            if let value = try PocketKeychain.read(call.getString("key") ?? "") { call.resolve(["value": value]) }
+            else { call.resolve([:]) }
+        } catch { call.reject(error.localizedDescription) }
     }
 
     @objc func writeSecure(_ call: CAPPluginCall) {
-        guard var query = vaultQuery(call) else { return }
-        guard let value = call.getString("value"), value.utf8.count <= 2 * 1024 * 1024, let data = value.data(using: .utf8) else { call.reject("Invalid vault value"); return }
-        let update = [kSecValueData as String: data]
-        var status = SecItemUpdate(query as CFDictionary, update as CFDictionary)
-        if status == errSecItemNotFound {
-            query[kSecValueData as String] = data
-            query[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
-            status = SecItemAdd(query as CFDictionary, nil)
-        }
-        guard status == errSecSuccess else { call.reject("Не удалось записать в Keychain (\(status))"); return }
-        call.resolve()
+        do {
+            try PocketKeychain.write(call.getString("key") ?? "", call.getString("value") ?? "")
+            call.resolve()
+        } catch { call.reject(error.localizedDescription) }
     }
 
     @objc func removeSecure(_ call: CAPPluginCall) {
-        guard let query = vaultQuery(call) else { return }
-        let status = SecItemDelete(query as CFDictionary)
-        guard status == errSecSuccess || status == errSecItemNotFound else { call.reject("Не удалось удалить запись Keychain (\(status))"); return }
-        call.resolve()
+        do {
+            try PocketKeychain.remove(call.getString("key") ?? "")
+            call.resolve()
+        } catch { call.reject(error.localizedDescription) }
     }
 
     @objc func startEvents(_ call: CAPPluginCall) {

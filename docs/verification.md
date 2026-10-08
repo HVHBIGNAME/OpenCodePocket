@@ -1,17 +1,23 @@
 # Проверка версии 1.0.0
 
-Дата: 5 октября 2026.
+Дата: 7 октября 2026. Проверка выпуска 1.0.0.
 
 ## Выполнено локально
 
-- `npm run typecheck` — TypeScript strict, включая companion и тестовые сценарии.
-- 33 unit/integration проверки: QR, URL validation, UTF-8/CRLF SSE, авторизация, одноразовость и TTL, rate limit, CORS, upstream credentials, отзыв устройств, resume/replay, обновление сообщений.
-- 12 Playwright сценариев на desktop Chromium, Android-viewport Chromium и iOS-viewport WebKit. Подключение через реальный companion, диалог, потоковый ответ, patch/todo/file views, вопросы, разрешения, model/config/provider flows и отсутствие горизонтального overflow.
-- `npm audit` — 0 известных уязвимостей на момент установки зависимостей.
+- `npm run check` — TypeScript strict и **40 unit/integration проверок**: QR, URL validation, UTF-8/CRLF SSE, авторизация, одноразовость и TTL, rate limit, CORS, upstream credentials, отзыв устройств, resume/replay, обновление сообщений и восстановление темы. Диагностика проверяется на удаление приватного текста, очередь без сети, отключение и объединение повторов через тестовый GitHub API.
+- `npm run themes:check` — **37 оригинальных тем × 2 режима**, результат точно совпадает с обоими исходными OpenCode-resolver на ревизии `3f393d78bfc3f0826b2c7080e57964c235704695`.
+- `npx playwright test` — **30 успешных сценариев** на компактном Android / Chromium, Android / Pixel 7 и iOS / WebKit. Проверены подключение, диалог, потоковый ответ, patch/todo/file views, пошаговые вопросы с возвратом, разрешения, модели, варианты, агенты и глобальная конфигурация. Все 74 цветовых варианта проверены на каждом браузерном проекте, включая точные токены, фон, отсутствие overflow, сохранение выбора и смену системной темы.
+- Мобильная эргономика: основные кнопки чата имеют область нажатия не меньше 44 × 44 px; отправка остаётся видимой при ширине 320 px и высоте 440 px. Потоковый ответ сохраняет позицию чтения; кнопка перехода к последнему сообщению работает.
+- `node tests/integration/live-opencode.mjs` — успешно с **OpenCode 1.18.32**: установка и загрузка плагина, авторизация сервера, pairing, API сессий/провайдеров/агентов/вопросов/разрешений, `PATCH /global/config` и сохранение доступа после перезагрузки плагина. Использовались изолированные XDG-каталоги; запросы AI-провайдерам не выполнялись.
+- Production web bundle и bundled companion собраны; `cap sync` обновил Android и iOS, включая Keyboard. Скриншоты основных экранов пересозданы и просмотрены; документация использует актуальные мобильные изображения.
 
 ## Нативные сборки
 
-Android и iOS компилируются отдельными job в [Build OCC](https://github.com/HVHBIGNAME/OpenCodePocket/actions/workflows/build.yml). У каждого run есть логи, подпись Android проверяется `apksigner`, APK/IPA прикладываются как artifacts. Финальный tagged run является источником релизных файлов.
+- **Android release APK собран локально** (`assembleRelease`, JDK 21) и проверен `apksigner`: `android/app/build/outputs/apk/release/app-release.apk`. Подпись APK Signature Scheme v2, RSA 3072.
+- **Android native smoke пройден на эмуляторе API 35**: нативный HTTP и pairing, Keystore AES-GCM с длинной Unicode-строкой и проверкой шифротекста на диске, открытие клавиатуры и доступность отправки, native SSE, уведомление об ожидающем вопросе при свёрнутом приложении, восстановление подключения после полного перезапуска процесса.
+- iOS-проект синхронизирован; нативная компиляция Xcode в этой Windows-сессии не выполнялась. Её нужно проверить на macOS. iOS/WebKit проверяет только интерфейс и браузерное поведение.
+
+Релизные Android и iOS собираются отдельными job в [Build OCC](https://github.com/HVHBIGNAME/OpenCodePocket/actions/workflows/build.yml). Tagged run является источником публикуемых APK/IPA; локальный debug APK не заменяет проверку подписанного релиза.
 
 Физический iPhone не подключался. WebKit viewport проверяет браузерный слой, но не заменяет запуск IPA на устройстве. Доставка APNs требует Apple-подписи и ключей владельца; без них end-to-end APNs не проверяется. Реальное качество распознавания речи зависит от оборудования и языкового пакета.
 

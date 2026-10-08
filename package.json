@@ -5,7 +5,9 @@
   "type": "module",
   "description": "Your OpenCode workspace, within reach. Android + iOS client and a self-hosted companion bridge.",
   "license": "MIT",
-  "engines": { "node": ">=22" },
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 1420",
     "build": "tsc --noEmit && vite build && npm run build:bridge",
@@ -14,7 +16,10 @@
     "test": "vitest run",
     "test:e2e": "playwright test",
     "typecheck": "tsc --noEmit",
-    "check": "npm run typecheck && npm test",
+    "format": "prettier --write \"{src,shared,tests,packages/bridge/src}/**/*.{ts,tsx,mjs}\" \"*.{ts,json}\" \"scripts/*.mjs\" src/styles.css",
+    "check": "npm run typecheck && npm run themes:check && npm test",
+    "themes:sync": "node scripts/sync-opencode-themes.mjs",
+    "themes:check": "node scripts/sync-opencode-themes.mjs --check",
     "native:sync": "npm run build:web && cap sync",
     "android": "cap open android",
     "ios": "cap open ios",
@@ -27,7 +32,8 @@
     "@capacitor/barcode-scanner": "3.1.2",
     "@capacitor/core": "8.5.2",
     "@capacitor/haptics": "8.0.2",
-    "@fontsource-variable/manrope": "^5.2.8",
+    "@capacitor/keyboard": "8.0.6",
+    "@fontsource/manrope": "5.3.0",
     "@fontsource/ibm-plex-mono": "^5.2.7",
     "clsx": "^2.1.1",
     "lucide-react": "1.52.0",
@@ -50,11 +56,16 @@
     "@vitejs/plugin-react": "^6.0.0",
     "esbuild": "^0.28.1",
     "qrcode": "^1.5.4",
+    "prettier": "3.9.9",
     "sharp": "^0.35.5",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3",
     "vite": "8.3.2",
     "vitest": "5.0.3"
   },
-  "overrides": { "xcode": { "uuid": "^11.1.1" } }
+  "overrides": {
+    "xcode": {
+      "uuid": "^11.1.1"
+    }
+  }
 }

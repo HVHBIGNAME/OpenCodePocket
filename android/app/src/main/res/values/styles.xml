@@ -2,12 +2,12 @@
 <resources>
 
     <style name="AppTheme" parent="Theme.AppCompat.DayNight.NoActionBar">
-        <item name="colorPrimary">#101310</item>
-        <item name="colorPrimaryDark">#101310</item>
-        <item name="colorAccent">#d2ff5a</item>
+        <item name="colorPrimary">#0b0b14</item>
+        <item name="colorPrimaryDark">#0b0b14</item>
+        <item name="colorAccent">#c4d2fd</item>
         <item name="android:windowLightStatusBar">false</item>
-        <item name="android:statusBarColor">#101310</item>
-        <item name="android:navigationBarColor">#101310</item>
+        <item name="android:statusBarColor">#0b0b14</item>
+        <item name="android:navigationBarColor">#0b0b14</item>
     </style>
 
     <style name="AppTheme.NoActionBar" parent="Theme.AppCompat.DayNight.NoActionBar">
@@ -16,13 +16,13 @@
         <item name="android:background">@null</item>
         <item name="android:windowLightStatusBar">false</item>
         <item name="android:windowLightNavigationBar">false</item>
-        <item name="android:statusBarColor">#101310</item>
-        <item name="android:navigationBarColor">#101310</item>
+        <item name="android:statusBarColor">#0b0b14</item>
+        <item name="android:navigationBarColor">#0b0b14</item>
     </style>
 
 
     <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
-        <item name="windowSplashScreenBackground">#101310</item>
+        <item name="windowSplashScreenBackground">#0b0b14</item>
         <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
         <item name="postSplashScreenTheme">@style/AppTheme.NoActionBar</item>
     </style>

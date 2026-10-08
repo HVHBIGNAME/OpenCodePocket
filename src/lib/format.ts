@@ -7,7 +7,16 @@ export function timeAgo(timestamp: number) {
   if (hours < 48) return 'вчера';
   return new Date(timestamp).toLocaleDateString('ru', { day: 'numeric', month: 'short' });
 }
-export function folderName(path: string) { return path.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || path; }
-export const number = (value: number) => new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 }).format(value);
+export function folderName(path: string) {
+  return (
+    path
+      .replace(/[\\/]+$/, '')
+      .split(/[\\/]/)
+      .pop() || path
+  );
+}
+export const number = (value: number) =>
+  new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 }).format(value);
 export const money = (value: number) => `$${value.toFixed(value < 0.01 ? 4 : 2)}`;
-export const clock = (timestamp: number) => new Date(timestamp).toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' });
+export const clock = (timestamp: number) =>
+  new Date(timestamp).toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' });

@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		0CC000000000000000000016 /* PocketKeychain.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0CC000000000000000000006; };
+		0CC000000000000000000017 /* PocketMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0CC000000000000000000007; };
 		0CC000000000000000000011 /* PocketNativePlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0CC000000000000000000001; };
 		0CC000000000000000000012 /* PocketEventStream.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0CC000000000000000000002; };
 		0CC000000000000000000013 /* PocketSpeech.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0CC000000000000000000003; };
@@ -23,6 +25,8 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		0CC000000000000000000006 /* PocketKeychain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PocketKeychain.swift; sourceTree = "<group>"; };
+		0CC000000000000000000007 /* PocketMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PocketMetrics.swift; sourceTree = "<group>"; };
 		0CC000000000000000000001 /* PocketNativePlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PocketNativePlugin.swift; sourceTree = "<group>"; };
 		0CC000000000000000000002 /* PocketEventStream.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PocketEventStream.swift; sourceTree = "<group>"; };
 		0CC000000000000000000003 /* PocketSpeech.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PocketSpeech.swift; sourceTree = "<group>"; };
@@ -73,6 +77,8 @@
 		504EC3061FED79650016851F /* App */ = {
 			isa = PBXGroup;
 			children = (
+				0CC000000000000000000006 /* PocketKeychain.swift */,
+				0CC000000000000000000007 /* PocketMetrics.swift */,
 				0CC000000000000000000001 /* PocketNativePlugin.swift */,
 				0CC000000000000000000002 /* PocketEventStream.swift */,
 				0CC000000000000000000003 /* PocketSpeech.swift */,
@@ -173,6 +179,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				0CC000000000000000000016 /* PocketKeychain.swift in Sources */,
+				0CC000000000000000000017 /* PocketMetrics.swift in Sources */,
 				0CC000000000000000000011 /* PocketNativePlugin.swift in Sources */,
 				0CC000000000000000000012 /* PocketEventStream.swift in Sources */,
 				0CC000000000000000000013 /* PocketSpeech.swift in Sources */,

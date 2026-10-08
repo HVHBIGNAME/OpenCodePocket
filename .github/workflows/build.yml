@@ -80,7 +80,8 @@ jobs:
         working-directory: android
         run: |
           chmod +x gradlew
-          ./gradlew assembleRelease assembleDebug lintRelease --console=plain
+          keytool -list -keystore "$OCC_KEYSTORE_FILE" -storepass:env OCC_KEYSTORE_PASSWORD -alias occ
+          ./gradlew assembleDebug assembleRelease lintRelease --console=plain --stacktrace
       - name: Verify APK signature and package
         run: |
           mkdir -p artifacts
