@@ -216,7 +216,22 @@ const server = createServer((request, response) => {
     if (url.pathname === '/__test/pair') return send(response, bridge.createPairing());
     if (url.pathname === '/__test/state') return send(response, { config, prompts, replies, providerKeys });
     if (url.pathname === '/__test/event') {
-      emit(String(payload.type), payload.properties as Record<string, unknown>);
+      const type = String(payload.type);
+      const properties = payload.properties as Record<string, unknown>;
+      if (type === 'message.part.delta') {
+        const part = messages[String(properties.sessionID)]
+          ?.find((entry) => entry.info.id === properties.messageID)
+          ?.parts.find((entry) => entry.id === properties.partID);
+        if (
+          !part ||
+          (part.type !== 'text' && part.type !== 'reasoning') ||
+          properties.field !== 'text' ||
+          typeof properties.delta !== 'string'
+        )
+          return send(response, { error: 'Invalid text delta' }, 400);
+        part.text += properties.delta;
+      }
+      emit(type, properties);
       return send(response, true);
     }
     if (url.pathname === '/global/health') return send(response, { healthy: true, version: '1.18.34' });

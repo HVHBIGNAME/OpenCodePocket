@@ -158,6 +158,28 @@ test('keeps the reading position during streaming and jumps to the latest on req
     },
   });
   await expect(chat).toContainText('Новая часть потокового ответа.');
+  const historyReload = page.waitForResponse(
+    (response) =>
+      response.request().method() === 'GET' &&
+      new URL(response.url()).pathname === '/api/session/ses_panel/message',
+  );
+  await page.request.post('http://127.0.0.1:4097/__test/event', {
+    data: { type: 'session.idle', properties: { sessionID: 'ses_panel' } },
+  });
+  expect(await (await historyReload).json()).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        info: expect.objectContaining({ id: 'msg_answer' }),
+        parts: expect.arrayContaining([
+          expect.objectContaining({
+            id: 'prt_end',
+            text: expect.stringContaining('Новая часть потокового ответа.'),
+          }),
+        ]),
+      }),
+    ]),
+  );
+  await expect(chat).toContainText('Новая часть потокового ответа.');
   expect(await chat.evaluate((element) => element.scrollTop)).toBeLessThan(2);
   await page.getByRole('button', { name: 'К последнему' }).click();
   await expect(page.getByText('Новая часть потокового ответа.', { exact: true })).toBeInViewport();

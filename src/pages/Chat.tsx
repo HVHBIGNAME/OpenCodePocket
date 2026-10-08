@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
   ArrowDown,
   ArrowLeft,
@@ -47,10 +47,10 @@ export function Chat() {
       previousSession.current = session?.id;
     }
   }, [session?.id]);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (atBottom && scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [entries, atBottom, tab]);
-  useEffect(() => {
+  useLayoutEffect(() => {
     const element = scrollRef.current;
     if (!element) return;
     const observer = new ResizeObserver(() => {
