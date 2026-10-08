@@ -70,7 +70,7 @@ jobs:
       - run: npm ci
       - run: npm run build:bridge
       - run: node scripts/installer-assets.mjs
-      - run: node tests/integration/installer-smoke.mjs
+      - run: node tests/integration/installer-smoke.mjs --minimal-powershell
 
   android:
     name: Android · signed APK

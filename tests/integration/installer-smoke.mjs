@@ -39,6 +39,7 @@ const server = createServer((request, response) => {
 await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
 const base = `http://127.0.0.1:${server.address().port}`;
 const env = { ...process.env, OPENCODE_CONFIG_DIR: config, OCC_STATE_DIR: state, OCC_RELEASE_URL: base };
+if (process.argv.includes('--minimal-powershell')) env.PSModulePath = '';
 if (process.argv.includes('--without-node') && process.platform === 'win32') {
   env.PATH = `${process.env.SystemRoot}/System32;${process.env.SystemRoot}/System32/WindowsPowerShell/v1.0`;
   delete env.Path;

@@ -13,7 +13,14 @@ function Download-Checked([string]$Url, [string]$Destination, [string]$Expected)
     $temporary = "$Destination.download"
     try {
         Invoke-WebRequest -UseBasicParsing -Uri $Url -OutFile $temporary
-        $actual = (Get-FileHash -LiteralPath $temporary -Algorithm SHA256).Hash.ToLowerInvariant()
+        $stream = [IO.File]::OpenRead($temporary)
+        $sha256 = [Security.Cryptography.SHA256]::Create()
+        try {
+            $actual = [BitConverter]::ToString($sha256.ComputeHash($stream)).Replace('-', '').ToLowerInvariant()
+        } finally {
+            $sha256.Dispose()
+            $stream.Dispose()
+        }
         if ($actual -ne $Expected.ToLowerInvariant()) { throw "Checksum mismatch: $Url" }
         Move-Item -LiteralPath $temporary -Destination $Destination -Force
     } finally {
