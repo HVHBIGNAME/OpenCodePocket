@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import {
   AudioLines,
-  Bell,
   Check,
   ChevronRight,
   GitBranch as Github,
@@ -16,11 +15,11 @@ import {
 import { z } from 'zod';
 import { APP_VERSION } from '../../shared/protocol';
 import { usePocket } from '../store/PocketProvider';
-import { isNative, platform, PocketNative } from '../lib/native';
 import { Button, ExternalLink, Modal, Toggle } from '../components/ui';
 import type { Config, Device } from '../types';
 import { DiagnosticSettings } from '../components/DiagnosticSettings';
 import { AppearanceSettings } from '../components/AppearanceSettings';
+import { NotificationSettings } from '../components/NotificationSettings';
 
 const permissionSchema = z.union([
   z.enum(['ask', 'allow', 'deny']),
@@ -39,43 +38,13 @@ const tools = [
 ] as const;
 
 export function Settings() {
-  const {
-    client,
-    preferences,
-    setPreferences,
-    setConnectOpen,
-    setScreen,
-    config,
-    saveConfig,
-    perform,
-    notify,
-    bridgeInfo,
-  } = usePocket();
+  const { client, preferences, setPreferences, setConnectOpen, setScreen, config, saveConfig, perform } =
+    usePocket();
   const [pendingPermission, setPendingPermission] = useState<Config['permission']>();
   const [advanced, setAdvanced] = useState(false);
   const [devices, setDevices] = useState(false);
-  const [notificationBusy, setNotificationBusy] = useState(false);
   const [permissionEdits, setPermissionEdits] = useState<Record<string, 'ask' | 'allow' | 'deny'>>({});
   useEffect(() => setPermissionEdits({}), [config.permission]);
-  async function notifications(enabled: boolean) {
-    setNotificationBusy(true);
-    await perform(async () => {
-      if (enabled) {
-        if (!isNative) throw new Error('Системные уведомления доступны в установленном APK/IPA.');
-        const result = await PocketNative.requestNotifications();
-        if (!result.granted) throw new Error('Разрешите уведомления OCC в настройках телефона.');
-        if (platform === 'ios' && bridgeInfo?.push.apns && client) {
-          const push = await PocketNative.registerPush();
-          await client.companion('/push', 'POST', push);
-        }
-      } else if (platform === 'ios' && client?.connection.mode === 'bridge')
-        await client.companion('/push', 'DELETE');
-      await setPreferences({ notifications: enabled });
-      if (enabled && platform === 'ios' && !bridgeInfo?.push.apns)
-        notify('Уведомления включены. Для доставки в фоне настройте APNs на мосте или подписку ntfy.');
-    });
-    setNotificationBusy(false);
-  }
   const permission = config.permission;
   return (
     <div className="page settings-page">
@@ -255,56 +224,7 @@ export function Settings() {
           </section>
         </div>
         <aside className="settings-aside">
-          <section className="panel settings-section">
-            <div className="settings-section-title">
-              <Bell size={20} />
-              <div>
-                <h2>Уведомления</h2>
-              </div>
-            </div>
-            <Toggle
-              checked={preferences.notifications}
-              disabled={notificationBusy}
-              onChange={(enabled) => void notifications(enabled)}
-              label="Уведомления"
-              description="Вопросы, доступы и ошибки"
-            />
-            <div className="notification-info">
-              <span className="eyebrow">
-                {platform === 'ios' ? 'IOS / PUSH DELIVERY' : 'ANDROID / LIVE CONNECTION'}
-              </span>
-              <p>
-                {platform === 'ios'
-                  ? bridgeInfo?.push.apns
-                    ? 'APNs настроен на мосте. Для фоновой доставки приложение должно быть подписано с Push Notifications entitlement.'
-                    : 'В фоне iOS нужен APNs на мосте или отдельная подписка ntfy. Обычный поток событий работает, пока приложение активно.'
-                  : 'На Android OCC поддерживает соединение через фоновый сервис с постоянным уведомлением. Система может ограничивать его при энергосбережении.'}
-              </p>
-              <ExternalLink href="https://github.com/HVHBIGNAME/OpenCodePocket/blob/main/docs/notifications.md">
-                Настроить доставку
-              </ExternalLink>
-            </div>
-            {client?.connection.mode === 'bridge' && (
-              <Button
-                variant="secondary"
-                onClick={() =>
-                  void perform(async () => {
-                    const result = await client.companion<{ dispatched: boolean }>(
-                      '/notifications/test',
-                      'POST',
-                    );
-                    notify(
-                      result.dispatched
-                        ? 'Тест передан в настроенные push-каналы.'
-                        : 'На мосте пока не настроены APNs или ntfy.',
-                    );
-                  })
-                }
-              >
-                Тест push-канала
-              </Button>
-            )}
-          </section>
+          <NotificationSettings />
           <DiagnosticSettings />
           <section className="panel settings-section">
             <div className="settings-section-title">

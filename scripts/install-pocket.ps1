@@ -1,4 +1,4 @@
-param([string]$BaseUrl = 'https://github.com/HVHBIGNAME/OpenCodePocket/releases/download/v1.0.1')
+param([string]$BaseUrl = 'https://github.com/HVHBIGNAME/OpenCodePocket/releases/download/v1.0.2')
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12

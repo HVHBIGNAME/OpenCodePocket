@@ -214,6 +214,53 @@ const server = createServer((request, response) => {
       return send(response, true);
     }
     if (url.pathname === '/__test/pair') return send(response, bridge.createPairing());
+    if (url.pathname === '/__test/agents') {
+      const parent = sessions.find((item) => item.id === 'ses_panel')!;
+      const child: Session = {
+        ...parent,
+        id: 'ses_child',
+        parentID: parent.id,
+        title: 'Аудит модулей (@explore subagent)',
+      };
+      sessions.push(child);
+      messages[child.id] = [
+        {
+          info: { ...messages.ses_panel![1]!.info, id: 'msg_child', sessionID: child.id },
+          parts: [
+            {
+              id: 'prt_child',
+              messageID: 'msg_child',
+              sessionID: child.id,
+              type: 'text',
+              text: 'Агент проверил границы модулей. Найдено два улучшения.',
+            },
+          ],
+        },
+      ];
+      const part: Part = {
+        id: 'prt_task',
+        messageID: 'msg_answer',
+        sessionID: parent.id,
+        type: 'tool',
+        tool: 'task',
+        callID: 'call_task',
+        state: {
+          status: 'running',
+          input: {
+            description: 'Аудит модулей',
+            subagent_type: 'explore',
+            prompt: 'Проверь границы модулей.',
+          },
+          title: 'Аудит модулей',
+          metadata: { sessionId: child.id, parentSessionId: parent.id },
+          time: { start: now },
+        },
+      };
+      messages.ses_panel![1]!.parts.push(part);
+      emit('session.created', { info: child });
+      emit('message.part.updated', { part });
+      return send(response, true);
+    }
     if (url.pathname === '/__test/state') return send(response, { config, prompts, replies, providerKeys });
     if (url.pathname === '/__test/event') {
       const type = String(payload.type);
@@ -339,7 +386,11 @@ const server = createServer((request, response) => {
       providerKeys.push(url.pathname.slice(6));
       return send(response, true);
     }
-    if (url.pathname === '/experimental/session') return send(response, sessions);
+    if (url.pathname === '/experimental/session')
+      return send(
+        response,
+        sessions.filter((item) => !item.parentID),
+      );
     if (url.pathname === '/session/status')
       return send(response, { ses_bcore: { type: 'busy' }, ses_plugins: { type: 'busy' } });
     if (url.pathname === '/question' || url.pathname === '/permission')
@@ -375,6 +426,15 @@ const server = createServer((request, response) => {
     if (match) {
       const id = match[1]!;
       const action = match[2];
+      if (action === 'children')
+        return send(
+          response,
+          sessions.filter((item) => item.parentID === id),
+        );
+      if (!action && request.method === 'GET') {
+        const target = sessions.find((item) => item.id === id);
+        return send(response, target ?? { error: 'Session not found' }, target ? 200 : 404);
+      }
       if (action === 'message') return send(response, messages[id] ?? []);
       if (action === 'diff')
         return send(response, [

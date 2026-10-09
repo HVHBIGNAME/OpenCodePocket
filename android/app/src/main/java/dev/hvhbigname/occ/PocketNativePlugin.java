@@ -8,6 +8,7 @@ import android.speech.RecognitionListener;
 import android.speech.RecognizerIntent;
 import android.speech.SpeechRecognizer;
 import androidx.core.content.ContextCompat;
+import androidx.core.app.NotificationManagerCompat;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.PermissionState;
 import com.getcapacitor.Plugin;
@@ -75,6 +76,15 @@ public class PocketNativePlugin extends Plugin implements EventConnection.Listen
     @PluginMethod public void requestNotifications(PluginCall call) {
         if (Build.VERSION.SDK_INT < 33 || getPermissionState("notifications") == PermissionState.GRANTED) { call.resolve(new JSObject().put("granted", true)); return; }
         requestPermissionForAlias("notifications", call, "notificationPermission");
+    }
+    @PluginMethod public void notificationStatus(PluginCall call) {
+        call.resolve(new JSObject().put("status", NotificationManagerCompat.from(getContext()).areNotificationsEnabled() ? "granted" : "denied"));
+    }
+    @PluginMethod public void openNotificationSettings(PluginCall call) {
+        Intent intent = new Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+            .putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, getContext().getPackageName());
+        getActivity().startActivity(intent);
+        call.resolve();
     }
     @PermissionCallback private void notificationPermission(PluginCall call) { call.resolve(new JSObject().put("granted", getPermissionState("notifications") == PermissionState.GRANTED)); }
     @PluginMethod public void registerPush(PluginCall call) { call.reject("Android uses the OCC background connection instead of APNs."); }

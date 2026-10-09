@@ -1,53 +1,12 @@
-import { Children, isValidElement, memo, useState, type ReactNode } from 'react';
-import Markdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
+import { memo, useState } from 'react';
 import { Brain, Check, ChevronRight, FileCode2, FileText, LoaderCircle, Terminal, X } from 'lucide-react';
 import { clock, money, number } from '../lib/format';
 import type { MessageEntry, Part } from '../types';
 import { CopyButton } from './ui';
 import { isAbortedTool, isGenerationCancelled } from '../lib/session-errors';
-
-function CodeBlock({ children }: { children: ReactNode }) {
-  const child = Children.toArray(children)[0];
-  const props = isValidElement<{ children?: string; className?: string }>(child) ? child.props : undefined;
-  const text = typeof props?.children === 'string' ? props.children : '';
-  const language = props?.className?.replace('language-', '') ?? 'code';
-  return (
-    <div className="code-block">
-      <div className="code-block-title">
-        <span className="mono">{language}</span>
-        <CopyButton text={text} />
-      </div>
-      <pre>{children}</pre>
-    </div>
-  );
-}
-
-export function RichText({ text }: { text: string }) {
-  return (
-    <div className="markdown">
-      <Markdown
-        remarkPlugins={[remarkGfm]}
-        components={{
-          pre: ({ children }) => <CodeBlock>{children}</CodeBlock>,
-          a: ({ href, children }) => (
-            <a href={href} target="_blank" rel="noreferrer">
-              {children}
-            </a>
-          ),
-          img: ({ alt }) => (
-            <span className="markdown-image-placeholder">
-              <FileText size={15} />
-              {alt ?? 'Изображение из ответа'}
-            </span>
-          ),
-        }}
-      >
-        {text}
-      </Markdown>
-    </div>
-  );
-}
+import { AgentTask } from './AgentTask';
+import { CodeBlock, RichText } from './RichText';
+export { RichText } from './RichText';
 
 function ReasoningView({ part }: { part: Extract<Part, { type: 'reasoning' }> }) {
   const [expanded, setExpanded] = useState<boolean>();
@@ -81,6 +40,7 @@ function PartView({ part }: { part: Part }) {
     case 'reasoning':
       return <ReasoningView part={part} />;
     case 'tool': {
+      if (part.tool === 'task') return <AgentTask part={part} />;
       const state = part.state;
       return (
         <details className={`tool-block tool-${state.status}`}>
@@ -100,13 +60,13 @@ function PartView({ part }: { part: Part }) {
             <ChevronRight size={14} />
           </summary>
           <div className="tool-body">
-            <span className="eyebrow">INPUT</span>
+            <span className="eyebrow">Параметры</span>
             <CodeBlock>
               <code className="language-json">{JSON.stringify(state.input, null, 2)}</code>
             </CodeBlock>
             {state.status === 'completed' && (
               <>
-                <span className="eyebrow">OUTPUT</span>
+                <span className="eyebrow">Результат</span>
                 <CodeBlock>
                   <code className="language-output">{state.output}</code>
                 </CodeBlock>

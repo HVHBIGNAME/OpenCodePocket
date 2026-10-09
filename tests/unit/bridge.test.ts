@@ -59,6 +59,33 @@ async function setup() {
 }
 
 describe('authenticated bridge', () => {
+  it('creates a stable per-device ntfy topic, persists it, hides it from device listings and revokes delivery', async () => {
+    const { bridge, headers, directory, credentials } = await setup();
+    const endpoint = `${bridge.localUrl}/occ/notifications/ntfy`;
+    expect((await fetch(endpoint, { method: 'POST', body: '{"enabled":true}' })).status).toBe(401);
+    const enable = () =>
+      fetch(endpoint, { method: 'POST', headers, body: '{"enabled":true}' }).then((response) =>
+        response.json(),
+      );
+    const first = await enable();
+    expect(first.topic).toMatch(/^occ-[a-f0-9]{48}$/);
+    expect(await enable()).toEqual(first);
+    const info = await (await fetch(`${bridge.localUrl}/occ/info`, { headers })).json();
+    expect(info.push).toMatchObject({ ntfy: true, ntfyTopic: first.topic, setup: true });
+    const reopened = new DeviceStore(directory);
+    await reopened.load();
+    expect(reopened.authenticate(credentials.token)?.ntfyTopic).toBe(first.topic);
+    const listing = await (await fetch(`${bridge.localUrl}/occ/devices`, { headers })).text();
+    expect(listing).not.toContain(first.topic);
+    await fetch(endpoint, { method: 'POST', headers, body: '{"enabled":false}' });
+    const result = await (
+      await fetch(`${bridge.localUrl}/occ/notifications/test`, { method: 'POST', headers })
+    ).json();
+    expect(result).toMatchObject({ attempted: 0, delivered: 0, dispatched: false });
+    expect(
+      (await fetch(`${bridge.localUrl}/occ/notifications/test`, { method: 'POST', headers })).status,
+    ).toBe(429);
+  });
   it('withholds pairing codes until the public tunnel is ready and protects local status', async () => {
     const { bridge, directory, headers } = await setup();
     const runtime = JSON.parse(await readFile(join(directory, 'runtime.json'), 'utf8'));

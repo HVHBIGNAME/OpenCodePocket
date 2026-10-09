@@ -21,35 +21,43 @@ import { MessageView } from '../components/MessageView';
 import { QuestionCard, PermissionCard } from '../components/Requests';
 import { Composer } from '../components/Composer';
 import { SessionDetails } from '../components/SessionDetails';
-import type { Session } from '../types';
+import type { MessageEntry, Session } from '../types';
+
+const emptyMessages: MessageEntry[] = [];
 
 export function Chat() {
-  const { session, data, setScreen, messageLoading, loadMessages, perform, status } = usePocket();
+  const { session, data, setScreen, messageLoading, loadMessages, perform, status, openRelatedSession } =
+    usePocket();
   const [tab, setTab] = useState<'chat' | 'diff' | 'todos' | 'files'>('chat');
   const [actions, setActions] = useState(false);
   const [requestsOpen, setRequestsOpen] = useState(false);
   const [limit, setLimit] = useState(100);
   const [atBottom, setAtBottom] = useState(true);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const entries = session ? (data.messages[session.id] ?? []) : [];
+  const selectedID = session?.id;
+  const entries = selectedID ? (data.messages[selectedID] ?? emptyMessages) : emptyMessages;
   const previousSession = useRef(session?.id);
+  const positions = useRef(new Map<string, { top: number; bottom: boolean }>());
+  const children = data.sessions.filter((item) => item.parentID === session?.id);
   const questions = data.questions.filter((item) => item.sessionID === session?.id);
   const permissions = data.permissions.filter((item) => item.sessionID === session?.id);
   const requestCount = questions.length + permissions.length;
   useEffect(() => {
     if (!requestCount) setRequestsOpen(false);
   }, [requestCount]);
-  useEffect(() => {
-    if (session?.id !== previousSession.current) {
+  useLayoutEffect(() => {
+    if (selectedID !== previousSession.current) {
       setTab('chat');
       setLimit(100);
-      setAtBottom(true);
-      previousSession.current = session?.id;
-    }
-  }, [session?.id]);
-  useLayoutEffect(() => {
-    if (atBottom && scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-  }, [entries, atBottom, tab]);
+      const saved = selectedID ? positions.current.get(selectedID) : undefined;
+      setAtBottom(saved?.bottom ?? true);
+      if (scrollRef.current)
+        scrollRef.current.scrollTop = saved && !saved.bottom ? saved.top : scrollRef.current.scrollHeight;
+      setRequestsOpen(false);
+      setActions(false);
+      previousSession.current = selectedID;
+    } else if (atBottom && scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+  }, [selectedID, entries, atBottom, tab]);
   useLayoutEffect(() => {
     const element = scrollRef.current;
     if (!element) return;
@@ -58,7 +66,7 @@ export function Chat() {
     });
     observer.observe(element);
     return () => observer.disconnect();
-  }, [atBottom, tab]);
+  }, [atBottom, tab, session?.id]);
   if (!session)
     return (
       <div className="page">
@@ -75,7 +83,14 @@ export function Chat() {
   return (
     <div className="chat-page">
       <header className="chat-heading">
-        <IconButton label="Назад к сессиям" onClick={() => setScreen('sessions')}>
+        <IconButton
+          label={session.parentID ? 'Назад к основной сессии' : 'Назад к сессиям'}
+          onClick={() =>
+            session.parentID
+              ? void perform(() => openRelatedSession(session.parentID!, session.directory))
+              : setScreen('sessions')
+          }
+        >
           <ArrowLeft size={20} />
         </IconButton>
         <div>
@@ -110,6 +125,30 @@ export function Chat() {
           </button>
         ))}
       </nav>
+      {children.length > 0 && (
+        <details className="child-sessions">
+          <summary>Агенты · {children.length}</summary>
+          <div>
+            {children.map((child) => (
+              <button
+                key={child.id}
+                onClick={() => void perform(() => openRelatedSession(child.id, child.directory))}
+              >
+                <span>{child.title}</span>
+                <small>
+                  {data.questions.some((item) => item.sessionID === child.id) ||
+                  data.permissions.some((item) => item.sessionID === child.id)
+                    ? 'Ждёт ответа'
+                    : data.statuses[child.id]?.type === 'busy'
+                      ? 'В работе'
+                      : 'Открыть'}
+                </small>
+                <ChevronRight size={14} />
+              </button>
+            ))}
+          </div>
+        </details>
+      )}
       {status !== 'live' && (
         <div className="offline-banner">Восстанавливаем связь. Твой черновик сохранится.</div>
       )}
@@ -120,7 +159,11 @@ export function Chat() {
             ref={scrollRef}
             onScroll={() => {
               const element = scrollRef.current;
-              if (element) setAtBottom(element.scrollHeight - element.scrollTop - element.clientHeight < 100);
+              if (element) {
+                const bottom = element.scrollHeight - element.scrollTop - element.clientHeight < 100;
+                setAtBottom(bottom);
+                positions.current.set(session.id, { top: element.scrollTop, bottom });
+              }
             }}
           >
             <div className="messages-inner">

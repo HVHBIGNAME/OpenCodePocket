@@ -198,7 +198,14 @@ export async function createBridge(options: BridgeOptions) {
         version: APP_VERSION,
         name: options.name ?? 'My workstation',
         online: relay.online,
-        push: { apns: Boolean(options.push?.apns), ntfy: Boolean(options.push?.ntfy) },
+        push: {
+          apns: Boolean(options.push?.apns),
+          ntfy: Boolean(options.push?.ntfy || device.ntfyTopic),
+          registered: Boolean(device.pushToken),
+          ntfyTopic: device.ntfyTopic,
+          sharedNtfy: Boolean(options.push?.ntfy),
+          setup: true,
+        },
         deviceID: device.id,
         reports: { github: reports.options.github, repository: reports.options.repository },
       });
@@ -245,8 +252,20 @@ export async function createBridge(options: BridgeOptions) {
       return json(response, 200, true);
     }
     if (url.pathname === '/occ/notifications/test' && request.method === 'POST') {
-      await push.dispatch({ type: 'question.asked', properties: {} });
-      return json(response, 200, { dispatched: Boolean(options.push?.apns || options.push?.ntfy) });
+      const key = `test:${device.id}`;
+      const last = attempts.get(key);
+      if (last && last.reset > Date.now())
+        throw new HttpError(429, 'Подождите 30 секунд перед повторным тестом.');
+      attempts.set(key, { count: 1, reset: Date.now() + 30000 });
+      const result = await push.test(device.id);
+      return json(response, 200, { ...result, dispatched: result.delivered > 0 });
+    }
+    if (url.pathname === '/occ/notifications/ntfy' && request.method === 'POST') {
+      const input = z
+        .object({ enabled: z.boolean() })
+        .parse(JSON.parse((await body(request, 4096)).toString()));
+      const topic = await devices.setNtfy(device.id, input.enabled);
+      return json(response, 200, { topic });
     }
     if (!url.pathname.startsWith('/api/')) throw new HttpError(404, 'Not found');
     const path = url.pathname.slice(4);

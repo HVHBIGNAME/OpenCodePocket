@@ -15,6 +15,7 @@ import { ApiError, errorMessage, OpenCodeClient } from '../lib/api';
 import { isNative, PocketNative, vaultRead, vaultWrite } from '../lib/native';
 import { applyEvent, emptyData, type LiveData } from './reducer';
 import { isGenerationCancelled } from '../lib/session-errors';
+import { NotificationGate } from '../../shared/notification-policy';
 import {
   attachDiagnosticClient,
   captureDiagnostic,
@@ -70,11 +71,12 @@ function usePocketState() {
   const [refreshing, setRefreshing] = useState(false);
   const [connectOpen, setConnectOpen] = useState(false);
   const [connectIntent, setConnectIntent] = useState<'scan' | 'manual'>('manual');
-  const pendingNotification = useRef<string | undefined>(undefined);
+  const [pendingNotification, setPendingNotification] = useState<string>();
   const [pairingInput, setPairingInput] = useState('');
   const [messageLoading, setMessageLoading] = useState(false);
   const refreshTask = useRef<Promise<void> | undefined>(undefined);
   const messageSequence = useRef(0);
+  const navigationSequence = useRef(0);
   const streamQueue = useRef(Promise.resolve());
   const session = data.sessions.find((item) => item.id === sessionID);
   sessionRef.current = session;
@@ -157,7 +159,20 @@ function usePocketState() {
         setProviders(providerList);
         setAgents(agentList);
         setConfig(configuration);
-        setData((previous) => ({ ...previous, sessions, statuses, questions, permissions }));
+        setData((previous) => ({
+          ...previous,
+          sessions: [
+            ...new Map(
+              [...previous.sessions.filter((item) => item.parentID), ...sessions].map((item) => [
+                item.id,
+                item,
+              ]),
+            ).values(),
+          ],
+          statuses,
+          questions,
+          permissions,
+        }));
         if (source.connection.mode === 'bridge') {
           const info = await source.companion<BridgeInfo>('/info');
           if (source === clientRef.current) setBridgeInfo(info);
@@ -187,6 +202,7 @@ function usePocketState() {
         setConnections(saved);
       }
       clientRef.current = next;
+      navigationSequence.current++;
       refreshTask.current = undefined;
       setClient(next);
       setVersion(health.version);
@@ -237,6 +253,7 @@ function usePocketState() {
   useEffect(() => {
     if (!client) return;
     let cancelled = false;
+    const alerts = new NotificationGate();
     let stop: (() => Promise<void>) | undefined;
     let hydrateTimer: ReturnType<typeof setTimeout> | undefined;
     const hydrate = () => {
@@ -266,7 +283,11 @@ function usePocketState() {
       if (event.type === 'session.error') {
         const error = event.properties.error as { data?: { message?: string } } | undefined;
         if (isGenerationCancelled(error)) hydrate();
-        else notify(error?.data?.message ?? 'В сессии произошла ошибка. Проверьте ответ провайдера.', true);
+        else if (
+          !event.properties.sessionID ||
+          (event.properties.sessionID === sessionRef.current?.id && alerts.accept(event))
+        )
+          notify(error?.data?.message ?? 'В сессии произошла ошибка. Проверьте ответ провайдера.', true);
       }
       setData((previous) => applyEvent(previous, event));
       if (event.type.startsWith('session.next.') || event.type === 'session.idle') hydrate();
@@ -310,6 +331,7 @@ function usePocketState() {
 
   const openSession = useCallback(
     (target: Session) => {
+      navigationSequence.current++;
       setSessionID(target.id);
       setScreen('chat');
       if (target.model)
@@ -328,6 +350,56 @@ function usePocketState() {
     [config.default_agent, config.model, loadMessages, notify],
   );
 
+  const openRelatedSession = useCallback(
+    async (id: string, directory?: string) => {
+      const source = clientRef.current;
+      if (!source) throw new Error('Нет подключения');
+      const sequence = ++navigationSequence.current;
+      const target = await source.request<Session>(`/session/${encodeURIComponent(id)}`, { directory });
+      if (source !== clientRef.current || sequence !== navigationSequence.current) return;
+      if (!target?.id || !target.directory) throw new Error('Сессия агента недоступна');
+      setData((previous) => ({
+        ...previous,
+        sessions: [...previous.sessions.filter((item) => item.id !== target.id), target],
+      }));
+      openSession(target);
+    },
+    [openSession],
+  );
+
+  useEffect(() => {
+    if (!client || !sessionID || !session?.directory) return;
+    const controller = new AbortController();
+    let loading = false;
+    const loadChildren = async () => {
+      if (loading) return;
+      loading = true;
+      try {
+        const children = await client.request<Session[]>(
+          `/session/${encodeURIComponent(sessionID)}/children`,
+          { directory: session.directory, signal: controller.signal },
+        );
+        if (controller.signal.aborted || !Array.isArray(children)) return;
+        setData((previous) => ({
+          ...previous,
+          sessions: [...new Map([...previous.sessions, ...children].map((item) => [item.id, item])).values()],
+        }));
+      } catch (error) {
+        if (!controller.signal.aborted) captureDiagnostic(error, { kind: 'request' });
+      } finally {
+        loading = false;
+      }
+    };
+    void loadChildren();
+    const timer = setInterval(() => {
+      if (!document.hidden) void loadChildren();
+    }, 15000);
+    return () => {
+      controller.abort();
+      clearInterval(timer);
+    };
+  }, [client, sessionID, session?.directory]);
+
   useEffect(() => {
     if (!isNative) return;
     const handleUrl = ({ url }: { url: string }) => {
@@ -340,7 +412,10 @@ function usePocketState() {
         } else if (link.hostname === 'session') {
           const target = data.sessions.find((item) => item.id === link.searchParams.get('id'));
           if (target) openSession(target);
-          else setScreen('inbox');
+          else {
+            setPendingNotification(link.searchParams.get('id') ?? undefined);
+            setScreen('inbox');
+          }
         } else if (link.hostname === 'inbox') setScreen('inbox');
       } catch (error) {
         notify(errorMessage(error), true);
@@ -359,7 +434,7 @@ function usePocketState() {
         const target = data.sessions.find((item) => item.id === id);
         if (target) openSession(target);
         else {
-          pendingNotification.current = id;
+          setPendingNotification(id);
           setScreen('inbox');
         }
       }),
@@ -370,7 +445,11 @@ function usePocketState() {
           return;
         }
         if (connectOpen) setConnectOpen(false);
-        else if (screen === 'chat') setScreen('sessions');
+        else if (screen === 'chat' && sessionRef.current?.parentID) {
+          void openRelatedSession(sessionRef.current.parentID, sessionRef.current.directory).catch(
+            (error: unknown) => notify(errorMessage(error), true),
+          );
+        } else if (screen === 'chat') setScreen('sessions');
         else if (screen !== 'sessions') setScreen('sessions');
         else void NativeApp.minimizeApp();
       }),
@@ -378,7 +457,7 @@ function usePocketState() {
     return () => {
       for (const handle of handles) void handle.then((value) => value.remove());
     };
-  }, [data.sessions, openSession, loadMessages, refresh, notify, connectOpen, screen]);
+  }, [data.sessions, openSession, openRelatedSession, loadMessages, refresh, notify, connectOpen, screen]);
 
   useEffect(() => {
     if (!isNative) return;
@@ -388,17 +467,35 @@ function usePocketState() {
         setConnectOpen(true);
       }
       if (launch?.url.startsWith('occ://session?'))
-        pendingNotification.current = new URL(launch.url).searchParams.get('id') ?? undefined;
+        setPendingNotification(new URL(launch.url).searchParams.get('id') ?? undefined);
     });
   }, []);
 
   useEffect(() => {
-    const target = data.sessions.find((item) => item.id === pendingNotification.current);
+    if (!client || !pendingNotification) return;
+    setPendingNotification(undefined);
+    if (!/^ses_[\w-]+$/.test(pendingNotification)) return;
+    const target = data.sessions.find((item) => item.id === pendingNotification);
     if (target) {
-      pendingNotification.current = undefined;
       openSession(target);
+    } else {
+      const request = [...data.questions, ...data.permissions].find(
+        (item) => item.sessionID === pendingNotification,
+      );
+      void openRelatedSession(pendingNotification, request?.directory).catch((error: unknown) =>
+        notify(errorMessage(error), true),
+      );
     }
-  }, [data.sessions, openSession]);
+  }, [
+    client,
+    pendingNotification,
+    data.sessions,
+    data.questions,
+    data.permissions,
+    openSession,
+    openRelatedSession,
+    notify,
+  ]);
 
   const perform = useCallback(
     async (operation: () => Promise<unknown>, success?: string) => {
@@ -472,7 +569,7 @@ function usePocketState() {
   const haptic = useCallback(() => {
     if (isNative && preferences.haptics)
       void Haptics.impact({ style: ImpactStyle.Light }).catch((error: unknown) =>
-        console.debug('Haptics unavailable', errorMessage(error)),
+        captureDiagnostic(error, { kind: 'action' }),
       );
   }, [preferences.haptics]);
 
@@ -511,6 +608,7 @@ function usePocketState() {
     session,
     sessionID,
     openSession,
+    openRelatedSession,
     model,
     setModel,
     agent,

@@ -25,6 +25,63 @@ async function tab(page: Page, name: string) {
     .click();
 }
 
+test('opens task sessions, reads agent messages and returns to the parent with its draft', async ({
+  page,
+}, testInfo) => {
+  await connect(page);
+  await page.request.post('http://127.0.0.1:4097/__test/agents');
+  await page.getByRole('button', { name: /Панель управления — новая архитектура/ }).click();
+  const task = page.getByRole('region', { name: 'Задача агента: Аудит модулей' });
+  await expect(task).toContainText('В работе');
+  await task.screenshot({ path: testInfo.outputPath('agent-task.png') });
+  await page.getByLabel('Промпт для OpenCode').fill('Черновик основной сессии');
+  await page.route('**/api/session/ses_child?*', (route) =>
+    route.fulfill({ status: 503, json: { error: 'Агент временно недоступен' } }),
+  );
+  await task.getByRole('button', { name: 'Открыть диалог агента' }).click();
+  await expect(page.getByRole('alert')).toContainText('Агент временно недоступен');
+  await expect(page.getByLabel('Промпт для OpenCode')).toHaveValue('Черновик основной сессии');
+  await page.unroute('**/api/session/ses_child?*');
+  await task.getByRole('button', { name: 'Открыть диалог агента' }).click();
+  await expect(page.getByRole('heading', { name: 'Аудит модулей (@explore subagent)' })).toBeVisible();
+  await expect(page.getByText('Агент проверил границы модулей. Найдено два улучшения.')).toBeVisible();
+  await expect(page.getByLabel('Промпт для OpenCode')).toHaveValue('');
+  await page.screenshot({ path: testInfo.outputPath('agent-session.png') });
+  await page.getByRole('button', { name: 'Назад к основной сессии' }).click();
+  await expect(page.getByLabel('Промпт для OpenCode')).toHaveValue('Черновик основной сессии');
+  await page.request.post('http://127.0.0.1:4097/__test/event', {
+    data: { type: 'session.status', properties: { sessionID: 'ses_child', status: { type: 'idle' } } },
+  });
+  await expect(task).toContainText('Завершена');
+  await page.getByText('Агенты · 1', { exact: true }).click();
+  await page.getByRole('button', { name: /Аудит модулей \(@explore subagent\).*Открыть/ }).click();
+  await expect(page.getByRole('button', { name: 'Назад к основной сессии' })).toBeVisible();
+});
+
+test('configures and revokes a personal ntfy channel without claiming phone delivery', async ({
+  page,
+}, testInfo) => {
+  await connect(page);
+  await tab(page, 'Настройки');
+  const settings = page.getByRole('region', { name: 'Настройка уведомлений' });
+  await expect(settings.getByRole('button', { name: 'Отправить тестовое уведомление' })).toBeDisabled();
+  const toggle = settings.getByRole('switch', { name: /Доставка через ntfy/ });
+  await toggle.click();
+  await expect(toggle).toBeChecked();
+  await expect(settings.getByText('Добавьте подписку в ntfy', { exact: true })).toBeVisible();
+  await expect(settings.locator('.notification-topic code')).toHaveText(/^occ-[a-f0-9]{48}$/);
+  await settings.screenshot({ path: testInfo.outputPath('notifications.png') });
+  await page.route('**/occ/notifications/test', (route) =>
+    route.fulfill({ json: { dispatched: false, attempted: 1, delivered: 0, failed: 1 } }),
+  );
+  await settings.getByRole('button', { name: 'Отправить тестовое уведомление' }).click();
+  await expect(settings.getByRole('status')).toContainText('Тест не отправлен');
+  await toggle.click();
+  await expect(toggle).not.toBeChecked();
+  await expect(settings.locator('.notification-topic')).toHaveCount(0);
+  await expect(settings.getByRole('button', { name: 'Отправить тестовое уведомление' })).toBeDisabled();
+});
+
 test('pairs, resumes a session, streams a prompt and reads files, tasks and patches', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));

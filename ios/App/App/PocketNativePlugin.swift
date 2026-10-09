@@ -29,15 +29,15 @@ public class PocketNativePlugin: CAPPlugin, CAPBridgedPlugin, UNUserNotification
         CAPPluginMethod(name: "startSpeech", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "stopSpeech", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "requestNotifications", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "notificationStatus", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "openNotificationSettings", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "registerPush", returnType: CAPPluginReturnPromise)
     ]
     private var stream: PocketEventStream?
     private var speech: PocketSpeech?
-    private var notifications = false
     private var pushCall: CAPPluginCall?
     private var pushTimeout: DispatchWorkItem?
     private var observers: [NSObjectProtocol] = []
-    private var seenNotifications: [String] = []
 
     public override func load() {
         speech = PocketSpeech { [weak self] event in self?.notifyListeners("speech", data: event) }
@@ -85,10 +85,8 @@ public class PocketNativePlugin: CAPPlugin, CAPBridgedPlugin, UNUserNotification
         DispatchQueue.main.async {
             guard let text = call.getString("url"), let url = URL(string: text), ["https", "http"].contains(url.scheme ?? "") else { call.reject("Invalid event URL"); return }
             self.stream?.stop()
-            self.notifications = call.getBool("notifications") ?? false
             self.stream = PocketEventStream(url: url, authorization: call.getString("authorization") ?? "", onEvent: { [weak self] data in
                 self?.notifyListeners("serverEvent", data: ["data": data])
-                self?.notifyRequest(data)
             }, onState: { [weak self] connected in
                 self?.notifyListeners("connection", data: ["state": connected ? "connected" : "reconnecting"])
             })
@@ -122,45 +120,29 @@ public class PocketNativePlugin: CAPPlugin, CAPBridgedPlugin, UNUserNotification
         }
     }
 
-    private func notifyRequest(_ raw: String) {
-        guard notifications, let data = raw.data(using: .utf8), let envelope = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return }
-        let event = envelope["payload"] as? [String: Any] ?? envelope
-        guard let type = event["type"] as? String, let properties = event["properties"] as? [String: Any] else { return }
-        let sessionID = properties["sessionID"] as? String ?? ""
-        let kind = type.hasPrefix("question.") ? "question" : type.hasPrefix("permission.") ? "permission" : "error"
-        let identifier = "occ.\(kind).\(sessionID)"
-        let center = UNUserNotificationCenter.current()
-        if type.hasSuffix(".replied") || type.hasSuffix(".rejected") {
-            center.removeDeliveredNotifications(withIdentifiers: [identifier])
-            return
+    @objc func notificationStatus(_ call: CAPPluginCall) {
+        UNUserNotificationCenter.current().getNotificationSettings { settings in
+            let status: String
+            switch settings.authorizationStatus {
+            case .authorized, .provisional, .ephemeral: status = "granted"
+            case .denied: status = "denied"
+            default: status = "prompt"
+            }
+            call.resolve(["status": status])
         }
-        let content = UNMutableNotificationContent()
-        switch type {
-        case "question.asked", "question.v2.asked":
-            content.title = "У OpenCode есть вопрос"
-            content.body = "Ваш ответ нужен для продолжения работы."
-        case "permission.asked", "permission.v2.asked":
-            content.title = "OpenCode ждёт разрешения"
-            content.body = "Откройте OCC, чтобы проверить действие."
-        case "session.error":
-            content.title = "OpenCode: нужна помощь"
-            content.body = "В сессии произошла ошибка. Подробности в OCC."
-        default: return
-        }
-        let eventID = event["id"] as? String ?? "\(type):\(properties["id"] as? String ?? ""):\(sessionID)"
-        if seenNotifications.contains(eventID) { return }
-        seenNotifications.append(eventID)
-        if seenNotifications.count > 256 { seenNotifications.removeFirst() }
-        content.sound = .default
-        content.userInfo = ["sessionID": sessionID]
-        content.threadIdentifier = sessionID
-        center.add(UNNotificationRequest(identifier: identifier, content: content, trigger: nil)) { error in
-            if let error = error { NSLog("OCC notification: %@", error.localizedDescription) }
+    }
+
+    @objc func openNotificationSettings(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            guard let url = URL(string: UIApplication.openSettingsURLString) else { call.reject("Настройки недоступны"); return }
+            UIApplication.shared.open(url) { opened in
+                if opened { call.resolve() } else { call.reject("Не удалось открыть настройки") }
+            }
         }
     }
 
     public func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification, withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
-        completionHandler(notification.request.trigger is UNPushNotificationTrigger ? [] : [.banner, .sound])
+        completionHandler([])
     }
 
     public func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse, withCompletionHandler completionHandler: @escaping () -> Void) {

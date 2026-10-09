@@ -1,6 +1,6 @@
 #!/bin/sh
 set -eu
-base=${OCC_RELEASE_URL:-https://github.com/HVHBIGNAME/OpenCodePocket/releases/download/v1.0.1}
+base=${OCC_RELEASE_URL:-https://github.com/HVHBIGNAME/OpenCodePocket/releases/download/v1.0.2}
 config=${OPENCODE_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/opencode}
 state=${OCC_STATE_DIR:-$config/occ-pocket}
 installer=$state/installer

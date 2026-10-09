@@ -49,7 +49,14 @@ export type BridgeInfo = {
   name: string;
   online: boolean;
   deviceID: string;
-  push: { apns: boolean; ntfy: boolean };
+  push: {
+    apns: boolean;
+    ntfy: boolean;
+    registered?: boolean;
+    ntfyTopic?: string;
+    sharedNtfy?: boolean;
+    setup?: boolean;
+  };
   reports?: { github: boolean; repository: string };
 };
 export type Device = { id: string; name: string; created: number; current: boolean };

@@ -9,6 +9,10 @@ const DeviceSchema = z.object({
   tokenHash: z.string(),
   created: z.number(),
   pushToken: z.string().optional(),
+  ntfyTopic: z
+    .string()
+    .regex(/^occ-[a-f0-9]{48}$/)
+    .optional(),
 });
 export type Device = z.infer<typeof DeviceSchema>;
 const StateSchema = z.object({ devices: z.array(DeviceSchema) });
@@ -86,6 +90,20 @@ export class DeviceStore {
       device.pushToken = previous;
       throw error;
     }
+  }
+
+  async setNtfy(id: string, enabled: boolean) {
+    const device = this.devices.find((item) => item.id === id);
+    if (!device) throw new Error('Unknown device');
+    const previous = device.ntfyTopic;
+    device.ntfyTopic = enabled ? (previous ?? `occ-${randomBytes(24).toString('hex')}`) : undefined;
+    try {
+      await this.save();
+    } catch (error) {
+      device.ntfyTopic = previous;
+      throw error;
+    }
+    return device.ntfyTopic;
   }
 
   private save() {

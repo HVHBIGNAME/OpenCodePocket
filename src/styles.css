@@ -419,6 +419,98 @@
 }
 
 @layer components {
+  .notification-topic {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .notification-topic code {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    flex: 1;
+  }
+  .notification-setup ol {
+    padding-left: 20px;
+  }
+  .notification-setup li {
+    margin: 10px 0;
+  }
+  .notification-info > summary {
+    min-height: 44px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+  }
+  .agent-task {
+    border: 1px solid var(--border-base);
+    border-radius: 12px;
+    padding: 14px;
+    background: var(--surface-raised-base);
+  }
+  .agent-task-heading,
+  .agent-task-status {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+  .agent-task-heading strong {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    font-size: 14px;
+  }
+  .agent-task-status {
+    font-size: 12px;
+    color: var(--text-weak);
+    margin: 8px 0 12px;
+  }
+  .agent-task .button {
+    width: 100%;
+  }
+  .agent-task-details {
+    margin-top: 10px;
+    font-size: 12px;
+  }
+  .agent-task-details > summary {
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+  }
+  .child-sessions {
+    flex-shrink: 0;
+    padding: 0 18px;
+    border-bottom: 1px solid var(--border-base);
+  }
+  .child-sessions > summary {
+    font-size: 13px;
+    padding: 12px 0;
+    cursor: pointer;
+  }
+  .child-sessions > div {
+    max-height: 25dvh;
+    overflow: auto;
+  }
+  .child-sessions button {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    width: 100%;
+    min-height: 48px;
+    background: none;
+    color: var(--text-base);
+    text-align: left;
+  }
+  .child-sessions button span {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .child-sessions small {
+    color: var(--text-weak);
+    white-space: nowrap;
+  }
   .button {
     display: inline-flex;
     align-items: center;

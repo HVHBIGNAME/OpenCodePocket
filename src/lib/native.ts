@@ -18,6 +18,8 @@ interface PocketNativePlugin {
   startSpeech(options: { locale: string; offline: boolean }): Promise<void>;
   stopSpeech(): Promise<void>;
   requestNotifications(): Promise<{ granted: boolean }>;
+  notificationStatus(): Promise<{ status: 'granted' | 'denied' | 'prompt' }>;
+  openNotificationSettings(): Promise<void>;
   registerPush(): Promise<{ token: string }>;
   addListener(name: 'serverEvent', listener: (event: NativeEvent) => void): Promise<PluginListenerHandle>;
   addListener(name: 'connection', listener: (event: NativeConnection) => void): Promise<PluginListenerHandle>;

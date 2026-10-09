@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const APP_VERSION = '1.0.1';
+export const APP_VERSION = '1.0.2';
 export const APP_ID = 'dev.hvhbigname.occ';
 
 export function isPrivateHost(host: string): boolean {
@@ -114,15 +114,17 @@ export function notificationFor(
   event: ServerEvent,
 ): { title: string; body: string; sessionID?: string } | undefined {
   const sessionID = typeof event.properties.sessionID === 'string' ? event.properties.sessionID : undefined;
+  if (!sessionID) return;
   if (event.type === 'permission.asked' || event.type === 'permission.v2.asked') {
     return { title: 'OpenCode ждёт разрешения', body: 'Откройте OCC, чтобы проверить действие.', sessionID };
   }
   if (event.type === 'question.asked' || event.type === 'question.v2.asked') {
     return { title: 'У OpenCode есть вопрос', body: 'Ваш ответ нужен для продолжения работы.', sessionID };
   }
-  if (event.type === 'session.error')
+  const error = event.properties.error as { name?: string } | undefined;
+  if (event.type === 'session.error' && error?.name !== 'MessageAbortedError')
     return {
-      title: 'OpenCode: нужна помощь',
+      title: 'Ошибка в сессии OpenCode',
       body: 'В сессии произошла ошибка. Подробности в OCC.',
       sessionID,
     };

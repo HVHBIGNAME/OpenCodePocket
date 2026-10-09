@@ -3,6 +3,7 @@ import { sign } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { APP_ID, notificationFor, type ServerEvent } from '../../../shared/protocol';
 import type { DeviceStore } from './state';
+import { NotificationGate } from '../../../shared/notification-policy';
 
 export type PushOptions = {
   apns?: { keyFile: string; keyId: string; teamId: string; topic?: string; production?: boolean };
@@ -10,6 +11,7 @@ export type PushOptions = {
 };
 
 export class PushService {
+  private gate = new NotificationGate();
   private jwt?: { token: string; created: number };
   constructor(
     readonly options: PushOptions,
@@ -19,10 +21,28 @@ export class PushService {
 
   async dispatch(event: ServerEvent) {
     const notification = notificationFor(event);
-    if (!notification) return;
+    if (!notification || !this.gate.accept(event)) return;
+    return this.deliver(notification);
+  }
+
+  async test(deviceID: string) {
+    return this.deliver(
+      { title: 'Проверка уведомлений OCC', body: 'Канал доставки работает. Это тестовое уведомление.' },
+      deviceID,
+    );
+  }
+
+  private async deliver(
+    notification: { title: string; body: string; sessionID?: string },
+    deviceID?: string,
+  ) {
     const jobs: Promise<unknown>[] = [];
-    if (this.options.ntfy) {
-      const { url, token } = this.options.ntfy;
+    const targets = this.devices.devices.filter((device) => !deviceID || device.id === deviceID);
+    const channels: NonNullable<PushOptions['ntfy']>[] = targets
+      .filter((device) => device.ntfyTopic)
+      .map((device) => ({ url: `https://ntfy.sh/${device.ntfyTopic}` }));
+    if (this.options.ntfy && (!deviceID || !channels.length)) channels.push(this.options.ntfy);
+    for (const { url, token } of channels) {
       const endpoint = new URL(url);
       jobs.push(
         fetch(`${endpoint.origin}/`, {
@@ -48,8 +68,8 @@ export class PushService {
       );
     }
     if (this.options.apns) {
-      for (const device of this.devices.devices) {
-        if (!device.pushToken) continue;
+      for (const device of targets) {
+        if (!device.pushToken || device.ntfyTopic) continue;
         jobs.push(
           this.apns(device.pushToken, {
             aps: {
@@ -66,12 +86,15 @@ export class PushService {
         );
       }
     }
+    let delivered = 0;
     for (const result of await Promise.allSettled(jobs)) {
+      if (result.status === 'fulfilled') delivered++;
       if (result.status === 'rejected')
         this.log(
           `Push delivery failed: ${result.reason instanceof Error ? result.reason.message : 'unknown error'}`,
         );
     }
+    return { attempted: jobs.length, delivered, failed: jobs.length - delivered };
   }
 
   private async authorization(): Promise<string> {
@@ -104,7 +127,8 @@ export class PushService {
       const finish = (error?: Error) => {
         clearTimeout(timer);
         client.close();
-        error ? reject(error) : resolve();
+        if (error) reject(error);
+        else resolve();
       };
       client.once('error', finish);
       const request = client.request({

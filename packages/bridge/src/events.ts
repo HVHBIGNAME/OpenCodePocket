@@ -84,6 +84,7 @@ export class EventRelay {
             }
           }
         }
+        if (!signal.aborted) this.publish({ type: 'occ.upstream', properties: { online: false } });
       } catch (error) {
         if (!signal.aborted)
           this.publish({
