@@ -15,6 +15,7 @@ const configDir = join(root, 'config', 'opencode');
 const state = join(configDir, 'occ-pocket');
 for (const directory of [project, configDir, state, join(root, 'cache'), join(root, 'data')])
   await mkdir(directory, { recursive: true });
+await writeFile(join(project, 'pocket-search-check.txt'), 'Pocket search integration fixture\n');
 await writeFile(
   join(configDir, 'opencode.json'),
   JSON.stringify({ $schema: 'https://opencode.ai/config.json', autoupdate: false }),
@@ -102,7 +103,7 @@ try {
     true,
   );
   const headers = { Authorization: `Bearer ${device.token}` };
-  const sessions = await request('/api/experimental/session?limit=200', { headers }, true);
+  const sessions = await request('/api/experimental/session?limit=200&archived=true', { headers }, true);
   assert(sessions.some((item) => item.id === session.id));
   for (const endpoint of [
     '/api/project',
@@ -119,6 +120,40 @@ try {
   console.log(
     'PASS installed plugin, Pocket commands, real server authentication, pairing, session/provider/agent/config/question/permission APIs',
   );
+  await request(
+    `/api/session/${session.id}`,
+    {
+      method: 'PATCH',
+      headers,
+      body: JSON.stringify({ time: { archived: Date.now() } }),
+    },
+    true,
+  );
+  const archived = await request('/api/experimental/session?limit=200&archived=true', { headers }, true);
+  assert(
+    archived.some((item) => item.id === session.id && item.time.archived),
+    'Archived session missing from global list',
+  );
+  const unarchived = await request(
+    `/api/session/${session.id}`,
+    {
+      method: 'PATCH',
+      headers,
+      body: JSON.stringify({ time: { archived: 0 } }),
+    },
+    true,
+  );
+  assert.equal(unarchived.time.archived, 0);
+  const files = await request(
+    '/api/find/file?query=pocket-search-check&dirs=false&limit=100',
+    { headers },
+    true,
+  );
+  assert(
+    files.some((path) => path.endsWith('pocket-search-check.txt')),
+    'Project file search did not return fixture',
+  );
+  console.log('PASS real session archive/restore and project-wide file search through the bridge');
   await request(
     '/api/global/config',
     { method: 'PATCH', headers, body: JSON.stringify({ permission: { bash: 'ask', edit: 'ask' } }) },

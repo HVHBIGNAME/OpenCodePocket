@@ -5,6 +5,7 @@ import { usePocket } from '../store/PocketProvider';
 import { errorMessage, pairDevice } from '../lib/api';
 import { platform } from '../lib/native';
 import { captureDiagnostic } from '../lib/diagnostics';
+import { connectionRoute } from '../lib/connection-route';
 import { Button, CopyButton, ExternalLink, IconButton, Modal } from './ui';
 
 const installCommand = `npx --yes --package=https://github.com/HVHBIGNAME/OpenCodePocket/releases/download/v${APP_VERSION}/hvhbigname-occ-bridge-${APP_VERSION}.tgz occ-pocket install`;
@@ -116,7 +117,9 @@ export function ConnectModal() {
                   }}
                 >
                   <strong>{connection.name}</strong>
-                  <small>{new URL(connection.url).hostname}</small>
+                  <small>
+                    {connectionRoute(connection.url)} · {new URL(connection.url).host}
+                  </small>
                 </button>
                 {client?.connection.id === connection.id && <Check size={19} className="accent" />}
                 {removeID === connection.id ? (

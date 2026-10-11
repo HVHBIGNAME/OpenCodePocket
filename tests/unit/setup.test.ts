@@ -5,7 +5,14 @@ import { join } from 'node:path';
 import { parse } from 'jsonc-parser';
 import { cloudflaredAsset, downloadVerified } from '../../packages/bridge/src/cloudflared';
 import { configureOpenCode } from '../../packages/bridge/src/install-config';
-import { waitForTunnel, readSettings, saveSettings, SettingsSchema } from '../../packages/bridge/src/setup';
+import {
+  waitForTunnel,
+  readSettings,
+  saveSettings,
+  SettingsSchema,
+  lanAddress,
+} from '../../packages/bridge/src/setup';
+import type { NetworkInterfaceInfo } from 'node:os';
 import { managePocket } from '../../packages/bridge/src/management';
 
 const directories: string[] = [];
@@ -23,6 +30,26 @@ afterEach(async () => {
 });
 
 describe('Pocket setup', () => {
+  it('prefers a physical LAN adapter over VPN and virtual adapters regardless of enumeration order', () => {
+    const adapter = (address: string): NetworkInterfaceInfo[] => [
+      {
+        address,
+        family: 'IPv4',
+        internal: false,
+        netmask: '255.255.255.0',
+        mac: '00:00:00:00:00:00',
+        cidr: `${address}/24`,
+      },
+    ];
+    expect(
+      lanAddress(4141, {
+        Tailscale: adapter('100.100.45.87'),
+        'vEthernet (WSL)': adapter('172.20.0.1'),
+        'Wi-Fi': adapter('192.168.1.4'),
+      }),
+    ).toBe('http://192.168.1.4:4141');
+    expect(lanAddress(4141, { Tailscale: adapter('100.100.45.87') })).toBe('http://100.100.45.87:4141');
+  });
   it('selects official pinned binaries and rejects unsupported platforms', () => {
     for (const [platform, arch] of [
       ['win32', 'x64'],

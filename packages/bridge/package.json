@@ -1,6 +1,6 @@
 {
   "name": "@hvhbigname/occ-bridge",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Pair your OpenCode sessions with OpenCode Pocket using a QR code.",
   "type": "module",
   "license": "MIT",
@@ -10,5 +10,5 @@
   "exports": { ".": "./dist/plugin.js", "./server": "./dist/plugin.js", "./bridge": "./dist/server.js", "./tui": "./dist/tui.js" },
   "files": ["dist", "README.md", "LICENSE"],
   "engines": { "node": ">=22" },
-  "devDependencies": { "zod": "^4.3.6" }
+  "devDependencies": { "zod": "^4.3.6", "qrcode": "^1.5.4" }
 }

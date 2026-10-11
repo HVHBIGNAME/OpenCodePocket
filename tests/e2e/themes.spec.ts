@@ -1,6 +1,75 @@
 import { expect, test } from '@playwright/test';
 import catalog from '../../src/themes/catalog.json' with { type: 'json' };
 
+test('offers Liquid Glass only on iPhone and preserves readable reduced-transparency surfaces', async ({
+  page,
+}, info) => {
+  await page.goto('/');
+  await page
+    .getByRole('navigation', { name: 'Главная навигация' })
+    .getByRole('button', { name: 'Настройки' })
+    .click();
+  await page.getByRole('button', { name: 'Тема: Mercury', exact: true }).click();
+  await page.getByLabel('Поиск тем').fill('Liquid Glass');
+  const option = page.getByRole('button', { name: 'Liquid Glass', exact: true });
+  if (info.project.name !== 'ios-webkit') {
+    await expect(option).toHaveCount(0);
+    return;
+  }
+  await option.click();
+  await page.getByRole('button', { name: 'Готово', exact: true }).click();
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'liquid-glass');
+  await expect(page.locator('html')).toHaveAttribute('data-glass-renderer', 'css');
+  for (const label of ['Тёмная', 'Светлая']) {
+    await page.getByRole('button', { name: label, exact: true }).click();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+    await page.screenshot({
+      path: info.outputPath(`liquid-glass-${label === 'Тёмная' ? 'dark' : 'light'}.png`),
+    });
+  }
+  await page.getByRole('switch', { name: /Уменьшить прозрачность/ }).check();
+  await expect(page.locator('html')).toHaveAttribute('data-glass-renderer', 'opaque');
+  expect(
+    await page.locator('.mobile-nav').evaluate((element) => getComputedStyle(element).backdropFilter),
+  ).toBe('none');
+  await page.reload();
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'liquid-glass');
+  await expect(page.locator('html')).toHaveAttribute('data-glass-renderer', 'opaque');
+});
+
+test('loads palettes on demand and ignores an older theme selection that finishes late', async ({ page }) => {
+  const palettes: string[] = [];
+  page.on('request', (request) => {
+    if (request.url().includes('/palettes/')) palettes.push(request.url());
+  });
+  await page.goto('/');
+  expect(palettes.every((url) => url.includes('mercury'))).toBe(true);
+  await page
+    .getByRole('navigation', { name: 'Главная навигация' })
+    .getByRole('button', { name: 'Настройки' })
+    .click();
+  await page.getByRole('button', { name: 'Тема: Mercury', exact: true }).click();
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route('**/palettes/catppuccin.json*', async (route) => {
+    await gate;
+    await route.continue();
+  });
+  await page.getByLabel('Поиск тем').fill('Catppuccin');
+  await page
+    .getByRole('group', { name: 'Каталог тем' })
+    .getByRole('button', { name: 'Catppuccin', exact: true })
+    .click();
+  await page.getByLabel('Поиск тем').fill('GitHub');
+  await page.getByRole('button', { name: 'GitHub', exact: true }).click();
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'github');
+  release();
+  await page.getByRole('button', { name: 'Готово', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Тема: GitHub', exact: true })).toBeVisible();
+});
+
 for (const mode of ['dark', 'light'] as const) {
   test(`all ${catalog.themes.length} original OpenCode themes render in ${mode} mode`, async ({ page }) => {
     test.setTimeout(120000);

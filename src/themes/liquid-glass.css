@@ -1,0 +1,99 @@
+@layer components {
+  :root[data-theme='liquid-glass'] {
+    --glass-fill: rgb(244 249 255 / 75%);
+    --glass-edge: rgb(255 255 255 / 88%);
+    --glass-shadow: 0 8px 30px rgb(27 50 90 / 12%), inset 0 1px 0 rgb(255 255 255 / 80%);
+    background: #eaf0f8;
+  }
+  :root[data-theme='liquid-glass'][data-color-mode='dark'] {
+    --glass-fill: rgb(28 44 65 / 80%);
+    --glass-edge: rgb(199 222 255 / 24%);
+    --glass-shadow: 0 8px 30px rgb(0 8 20 / 26%), inset 0 1px 0 rgb(235 246 255 / 15%);
+    background: #101b2b;
+  }
+  :root[data-theme='liquid-glass'] body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    background:
+      radial-gradient(ellipse at 10% 15%, rgb(120 190 255 / 27%), transparent 65%),
+      radial-gradient(ellipse at 90% 90%, rgb(155 124 223 / 22%), transparent 70%);
+    pointer-events: none;
+  }
+  :root[data-theme='liquid-glass'] :is(.app-shell, .app-header, .composer-wrap) {
+    background: transparent;
+  }
+  :root[data-theme='liquid-glass'] :is([data-pocket-glass], .modal) {
+    background: var(--glass-fill);
+    border: 1px solid var(--glass-edge);
+    box-shadow: var(--glass-shadow);
+    -webkit-backdrop-filter: blur(22px) saturate(1.35);
+    backdrop-filter: blur(22px) saturate(1.35);
+  }
+  :root[data-theme='liquid-glass'] .mobile-nav {
+    bottom: max(10px, var(--safe-bottom));
+    left: 50%;
+    transform: translateX(-50%);
+    width: min(calc(100% - 24px), 616px);
+    border-radius: 30px;
+    padding: 6px;
+    min-height: 72px;
+  }
+  :root[data-theme='liquid-glass'] .mobile-nav button {
+    border-radius: 24px;
+  }
+  :root[data-theme='liquid-glass'] .mobile-nav button.active {
+    background: rgb(137 173 225 / 22%);
+  }
+  :root[data-theme='liquid-glass'] .connection-switch {
+    border-radius: 24px;
+  }
+  :root[data-theme='liquid-glass'] .composer {
+    border-radius: 26px;
+  }
+  :root[data-theme='liquid-glass'] .composer textarea {
+    background: transparent;
+  }
+  :root[data-theme='liquid-glass'] .main-content {
+    padding-bottom: calc(124px + var(--safe-bottom));
+  }
+  :root[data-theme='liquid-glass'] :is(.session-row, .settings-section, .request-card, .model-card) {
+    border-color: var(--glass-edge);
+    border-radius: 20px;
+  }
+  :root[data-theme='liquid-glass'] .chat-heading {
+    border-bottom-color: var(--glass-edge);
+  }
+  :root[data-theme='liquid-glass'][data-glass-renderer='native'],
+  :root[data-theme='liquid-glass'][data-glass-renderer='native'] body {
+    background: transparent;
+  }
+  :root[data-theme='liquid-glass'][data-glass-renderer='native'] body::before {
+    display: none;
+  }
+  :root[data-theme='liquid-glass'][data-glass-renderer='native'] [data-pocket-glass] {
+    background: transparent;
+    box-shadow: none;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  :root[data-theme='liquid-glass'][data-glass-renderer='opaque'] :is([data-pocket-glass], .modal) {
+    background: var(--surface-raised-base);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    box-shadow: none;
+  }
+  :root[data-theme='liquid-glass'][data-glass-renderer='opaque'] body::before {
+    display: none;
+  }
+  .theme-exclusive {
+    display: block;
+    font-size: 10px;
+    font-weight: 500;
+    color: var(--muted);
+  }
+  .glass-description {
+    margin: 14px 0;
+  }
+}

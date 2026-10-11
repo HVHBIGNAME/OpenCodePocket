@@ -50,14 +50,19 @@ export function upstreamAuthorization() {
   return `Basic ${Buffer.from(`${process.env.OPENCODE_SERVER_USERNAME ?? 'opencode'}:${process.env.OPENCODE_SERVER_PASSWORD}`).toString('base64')}`;
 }
 
-export function lanAddress(port: number) {
-  for (const addresses of Object.values(networkInterfaces())) {
-    for (const address of addresses ?? []) {
-      if (address.family === 'IPv4' && !address.internal && !address.address.startsWith('169.254.'))
-        return `http://${address.address}:${port}`;
-    }
-  }
-  return `http://127.0.0.1:${port}`;
+export function lanAddress(port: number, interfaces = networkInterfaces()) {
+  const candidates = Object.entries(interfaces).flatMap(([name, addresses]) =>
+    (addresses ?? [])
+      .filter((item) => item.family === 'IPv4' && !item.internal && !item.address.startsWith('169.254.'))
+      .map((item) => {
+        const [a, b] = item.address.split('.').map(Number);
+        const privateAddress = a === 10 || (a === 192 && b === 168) || (a === 172 && b! >= 16 && b! <= 31);
+        const virtual = /tailscale|vpn|tun|tap|vethernet|virtual|docker|wsl|zerotier/i.test(name);
+        return { address: item.address, rank: (privateAddress ? 0 : 2) + (virtual ? 4 : 0) };
+      }),
+  );
+  candidates.sort((a, b) => a.rank - b.rank);
+  return `http://${candidates[0]?.address ?? '127.0.0.1'}:${port}`;
 }
 
 export async function waitForTunnel(url: string, signal: AbortSignal) {
@@ -169,8 +174,10 @@ export async function displayPairing(
     { mode: 0o600 },
   );
   if (terminal) {
-    console.log(await QRCode.toString(pair.link, { type: 'terminal', small: true }));
-    console.log(`\n${pair.name}\n${pair.link}\n\nQR page: ${path}\nExpires in 10 minutes. One use.\n`);
+    process.stdout.write(await QRCode.toString(pair.link, { type: 'terminal', small: true }));
+    process.stdout.write(
+      `\n${pair.name}\n${pair.link}\n\nQR page: ${path}\nExpires in 10 minutes. One use.\n`,
+    );
   }
   return path;
 }

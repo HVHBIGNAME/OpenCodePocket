@@ -1,4 +1,8 @@
 @layer components {
+  .appearance-modes,
+  .theme-catalog {
+    min-width: 0;
+  }
   .appearance-modes button {
     min-height: 60px;
     flex-direction: column;
@@ -34,6 +38,7 @@
     background: var(--preview-success);
   }
   .theme-catalog {
+    border: 0;
     display: grid;
     gap: 6px;
     max-height: 48dvh;
@@ -68,5 +73,14 @@
   }
   .theme-done {
     width: 100%;
+  }
+  .theme-exclusive {
+    display: block;
+    font-size: 11px;
+    color: var(--text-weak);
+    font-weight: 500;
+  }
+  .glass-description {
+    margin: 12px 0;
   }
 }

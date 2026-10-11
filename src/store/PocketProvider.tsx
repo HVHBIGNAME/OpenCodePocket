@@ -12,8 +12,11 @@ import { App as NativeApp } from '@capacitor/app';
 import { Haptics, ImpactStyle } from '@capacitor/haptics';
 import { type ServerEvent } from '../../shared/protocol';
 import { ApiError, errorMessage, OpenCodeClient } from '../lib/api';
-import { isNative, PocketNative, vaultRead, vaultWrite } from '../lib/native';
+import { isNative, platform, PocketNative, vaultRead, vaultWrite } from '../lib/native';
 import { applyEvent, emptyData, type LiveData } from './reducer';
+import { mergeHistory, mergeSnapshot } from './history';
+import { DraftStore } from './drafts';
+import { defaultSessionFilters } from '../lib/session-search';
 import { isGenerationCancelled } from '../lib/session-errors';
 import { NotificationGate } from '../../shared/notification-policy';
 import {
@@ -54,6 +57,10 @@ function usePocketState() {
   const savedRef = useRef<Connection[]>([]);
   const [ready, setReady] = useState(false);
   const [data, setData] = useState<LiveData>(emptyData);
+  const dataRef = useRef(data);
+  dataRef.current = data;
+  const [sessionFilters, setSessionFilters] = useState(defaultSessionFilters);
+  const [historyLimits, setHistoryLimits] = useState<Record<string, number>>({});
   const [projects, setProjects] = useState<Project[]>([]);
   const [providers, setProviders] = useState<ProviderList>({ all: [], connected: [], default: {} });
   const [agents, setAgents] = useState<Agent[]>([]);
@@ -67,15 +74,21 @@ function usePocketState() {
   const sessionRef = useRef<Session | undefined>(undefined);
   const [model, setModel] = useState<ModelChoice>();
   const [agent, setAgent] = useState('build');
+  const sessionChoices = useRef(new Map<string, { model?: ModelChoice; agent: string }>());
+  useEffect(() => {
+    if (screen === 'chat' && sessionID) sessionChoices.current.set(sessionID, { model, agent });
+  }, [screen, sessionID, model, agent]);
   const [toast, setToast] = useState<{ text: string; error: boolean }>();
   const [refreshing, setRefreshing] = useState(false);
   const [connectOpen, setConnectOpen] = useState(false);
   const [connectIntent, setConnectIntent] = useState<'scan' | 'manual'>('manual');
   const [pendingNotification, setPendingNotification] = useState<string>();
   const [pairingInput, setPairingInput] = useState('');
-  const [messageLoading, setMessageLoading] = useState(false);
+  const [loadingSession, setLoadingSession] = useState<string>();
   const refreshTask = useRef<Promise<void> | undefined>(undefined);
-  const messageSequence = useRef(0);
+  const messageRequests = useRef(new Map<string, { controller: AbortController; limit: number }>());
+  const loadedLimits = useRef(new Map<string, number>());
+  const connectionSequence = useRef(0);
   const navigationSequence = useRef(0);
   const streamQueue = useRef(Promise.resolve());
   const session = data.sessions.find((item) => item.id === sessionID);
@@ -87,6 +100,25 @@ function usePocketState() {
   useEffect(() => setDiagnosticScreen(screen), [screen]);
 
   const notify = useCallback((text: string, error = false) => setToast({ text, error }), []);
+  const drafts = useMemo(
+    () => new DraftStore((error) => notify(`Черновик: ${errorMessage(error)}`, true)),
+    [notify],
+  );
+  useEffect(() => {
+    const flush = () => {
+      void drafts.flushAll();
+    };
+    const hidden = () => {
+      if (document.hidden) flush();
+    };
+    window.addEventListener('pagehide', flush);
+    document.addEventListener('visibilitychange', hidden);
+    return () => {
+      window.removeEventListener('pagehide', flush);
+      document.removeEventListener('visibilitychange', hidden);
+      flush();
+    };
+  }, [drafts]);
   useEffect(() => {
     if (!toast) return;
     const timer = setTimeout(() => setToast(undefined), toast.error ? 9000 : 4500);
@@ -96,34 +128,68 @@ function usePocketState() {
   const loadMessages = useCallback(async (target: Session, limit = 100) => {
     const source = clientRef.current;
     if (!source) return;
-    const sequence = ++messageSequence.current;
-    setMessageLoading(true);
+    const active = messageRequests.current.get(target.id);
+    const request = {
+      controller: new AbortController(),
+      limit: Math.max(limit, loadedLimits.current.get(target.id) ?? 100, active?.limit ?? 100),
+    };
+    active?.controller.abort();
+    messageRequests.current.set(target.id, request);
+    const before = dataRef.current.messages[target.id] ?? [];
+    setData((previous) =>
+      previous.messages[target.id]
+        ? previous
+        : {
+            ...previous,
+            messages: { ...previous.messages, [target.id]: before },
+          },
+    );
+    setLoadingSession(target.id);
     try {
       const messages = await source.request<MessageEntry[]>(
-        `/session/${encodeURIComponent(target.id)}/message?limit=${limit}`,
-        { directory: target.directory },
+        `/session/${encodeURIComponent(target.id)}/message?limit=${request.limit}`,
+        { directory: target.directory, signal: request.controller.signal },
       );
       if (!Array.isArray(messages)) throw new Error('Сервер вернул некорректную историю');
-      if (source === clientRef.current && sequence === messageSequence.current) {
-        setData((previous) => ({ ...previous, messages: { ...previous.messages, [target.id]: messages } }));
+      if (source === clientRef.current && !request.controller.signal.aborted) {
+        loadedLimits.current.set(target.id, request.limit);
+        setHistoryLimits((previous) => ({ ...previous, [target.id]: request.limit }));
+        setData((previous) =>
+          previous.sessions.some((item) => item.id === target.id)
+            ? {
+                ...previous,
+                messages: {
+                  ...previous.messages,
+                  [target.id]: mergeHistory(messages, before, previous.messages[target.id] ?? []),
+                },
+              }
+            : previous,
+        );
       }
+    } catch (error) {
+      if (!request.controller.signal.aborted && source === clientRef.current) throw error;
     } finally {
-      if (sequence === messageSequence.current) setMessageLoading(false);
+      if (messageRequests.current.get(target.id) === request) {
+        messageRequests.current.delete(target.id);
+        setLoadingSession((id) => (id === target.id ? undefined : id));
+      }
     }
   }, []);
 
   const refresh = useCallback(async (source = clientRef.current) => {
-    if (!source) return;
+    if (!source || source !== clientRef.current) return;
     if (refreshTask.current) return refreshTask.current;
     const operation = (async () => {
+      const before = dataRef.current;
       setRefreshing(true);
       try {
-        const [projectList, providerList, agentList, configuration] = await Promise.all([
+        const [projectResult, providerResult, agentResult, configResult] = await Promise.allSettled([
           source.request<Project[]>('/project'),
           source.request<ProviderList>('/provider'),
           source.request<Agent[]>('/agent'),
           source.request<Config>('/config'),
         ]);
+        const projectList = projectResult.status === 'fulfilled' ? projectResult.value : [];
         const sessions = await source.allSessions(projectList);
         const directories = [
           ...new Set([source.connection.directory, ...sessions.map((item) => item.directory)]),
@@ -134,15 +200,26 @@ function usePocketState() {
         for (let index = 0; index < directories.length; index += 4) {
           const results = await Promise.all(
             directories.slice(index, index + 4).map(async (directory) => {
-              const [q, p, s] = await Promise.all([
+              const [q, p, s] = await Promise.allSettled([
                 source.request<PendingQuestion[]>('/question', { directory }),
                 source.request<PendingPermission[]>('/permission', { directory }),
                 source.request<Record<string, SessionStatus>>('/session/status', { directory }),
               ]);
+              const inDirectory = (id: string) =>
+                before.sessions.find((item) => item.id === id)?.directory === directory;
               return {
-                questions: q.map((item) => ({ ...item, directory })),
-                permissions: p.map((item) => ({ ...item, directory })),
-                statuses: s,
+                questions:
+                  q.status === 'fulfilled'
+                    ? q.value.map((item) => ({ ...item, directory }))
+                    : before.questions.filter((item) => item.directory === directory),
+                permissions:
+                  p.status === 'fulfilled'
+                    ? p.value.map((item) => ({ ...item, directory }))
+                    : before.permissions.filter((item) => item.directory === directory),
+                statuses:
+                  s.status === 'fulfilled'
+                    ? s.value
+                    : Object.fromEntries(Object.entries(before.statuses).filter(([id]) => inDirectory(id))),
               };
             }),
           );
@@ -155,24 +232,28 @@ function usePocketState() {
         questions = [...new Map(questions.map((item) => [item.id, item])).values()];
         permissions = [...new Map(permissions.map((item) => [item.id, item])).values()];
         if (source !== clientRef.current) return;
-        setProjects(projectList);
-        setProviders(providerList);
-        setAgents(agentList);
-        setConfig(configuration);
-        setData((previous) => ({
-          ...previous,
-          sessions: [
-            ...new Map(
-              [...previous.sessions.filter((item) => item.parentID), ...sessions].map((item) => [
-                item.id,
-                item,
-              ]),
-            ).values(),
-          ],
-          statuses,
-          questions,
-          permissions,
-        }));
+        if (projectResult.status === 'fulfilled') setProjects(projectResult.value);
+        if (providerResult.status === 'fulfilled') setProviders(providerResult.value);
+        if (agentResult.status === 'fulfilled') setAgents(agentResult.value);
+        if (configResult.status === 'fulfilled') setConfig(configResult.value);
+        setData((previous) => {
+          const nextStatuses = { ...statuses };
+          for (const id of Object.keys(before.statuses))
+            if (!(id in previous.statuses)) delete nextStatuses[id];
+          for (const [id, value] of Object.entries(previous.statuses))
+            if (before.statuses[id] !== value) nextStatuses[id] = value;
+          return {
+            ...previous,
+            sessions: mergeSnapshot(
+              [...before.sessions.filter((item) => item.parentID), ...sessions],
+              before.sessions,
+              previous.sessions,
+            ),
+            statuses: nextStatuses,
+            questions: mergeSnapshot(questions, before.questions, previous.questions),
+            permissions: mergeSnapshot(permissions, before.permissions, previous.permissions),
+          };
+        });
         if (source.connection.mode === 'bridge') {
           const info = await source.companion<BridgeInfo>('/info');
           if (source === clientRef.current) setBridgeInfo(info);
@@ -191,9 +272,11 @@ function usePocketState() {
 
   const connect = useCallback(
     async (connection: Connection, persist = true) => {
+      const sequence = ++connectionSequence.current;
       const next = new OpenCodeClient(connection);
-      const health = await next.health();
-      if (!health.healthy) throw new Error('OpenCode пока не готов');
+      const health = persist ? await next.health() : undefined;
+      if (sequence !== connectionSequence.current) return;
+      if (health && !health.healthy) throw new Error('OpenCode пока не готов');
       if (persist) {
         const saved = [...savedRef.current.filter((item) => item.id !== connection.id), connection];
         await vaultWrite('occ.connections', saved);
@@ -201,19 +284,36 @@ function usePocketState() {
         savedRef.current = saved;
         setConnections(saved);
       }
+      if (sequence !== connectionSequence.current) return;
       clientRef.current = next;
+      for (const request of messageRequests.current.values()) request.controller.abort();
+      messageRequests.current.clear();
+      loadedLimits.current.clear();
+      sessionChoices.current.clear();
+      setHistoryLimits({});
+      setLoadingSession(undefined);
+      setSessionFilters(defaultSessionFilters);
       navigationSequence.current++;
       refreshTask.current = undefined;
       setClient(next);
-      setVersion(health.version);
+      setVersion(health?.version ?? '');
+      if (!health)
+        void next
+          .health()
+          .then((value) => {
+            if (next === clientRef.current) setVersion(value.version);
+          })
+          .catch((error: unknown) => captureDiagnostic(error, { kind: 'request', operation: 'connect' }));
       setData(emptyData());
       setBridgeInfo(undefined);
       setSessionID(undefined);
       setScreen('sessions');
       setModel(undefined);
       setStatus('connecting');
-      await refresh(next);
-      setConnectOpen(false);
+      void refresh(next).catch((error: unknown) =>
+        captureDiagnostic(error, { kind: 'request', operation: 'connect' }),
+      );
+      if (next === clientRef.current) setConnectOpen(false);
     },
     [refresh],
   );
@@ -250,9 +350,27 @@ function usePocketState() {
     };
   }, [connect, notify]);
 
+  const streamNotifications = platform === 'android' && preferences.notifications;
   useEffect(() => {
     if (!client) return;
     let cancelled = false;
+    let unauthorized = false;
+    let upstreamOnline = client.connection.mode !== 'bridge';
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    let syncFailures = 0;
+    const sync = () => {
+      if (cancelled || unauthorized || client !== clientRef.current) return;
+      clearTimeout(retryTimer);
+      void refresh(client)
+        .then(() => {
+          syncFailures = 0;
+        })
+        .catch((error: unknown) => {
+          if (cancelled || unauthorized || client !== clientRef.current) return;
+          captureDiagnostic(error, { kind: 'request', operation: 'sync' });
+          retryTimer = setTimeout(sync, Math.min(15_000, 1000 * 2 ** Math.min(syncFailures++, 4)));
+        });
+    };
     const alerts = new NotificationGate();
     let stop: (() => Promise<void>) | undefined;
     let hydrateTimer: ReturnType<typeof setTimeout> | undefined;
@@ -263,21 +381,23 @@ function usePocketState() {
         const target = sessionRef.current;
         if (!cancelled && target)
           void loadMessages(target).catch((error: unknown) => notify(errorMessage(error), true));
-      }, 600);
+      }, 120);
     };
     const handleEvent = (event: ServerEvent) => {
-      if (cancelled) return;
+      if (cancelled || client !== clientRef.current) return;
       if (event.type === 'occ.unauthorized') {
+        unauthorized = true;
+        clearTimeout(retryTimer);
         setStatus('offline');
         notify('Доступ отозван. Подключитесь заново.', true);
         return;
       }
       if (event.type === 'occ.upstream' || event.type === 'occ.connected') {
-        if (event.properties.online === false) setStatus('reconnecting');
-        else if (event.properties.online === true) setStatus('live');
+        upstreamOnline = event.properties.online === true;
+        setStatus(upstreamOnline ? 'live' : 'reconnecting');
       }
       if (['occ.resync', 'server.connected', 'global.disposed', 'occ.connected'].includes(event.type)) {
-        void refresh(client).catch((error: unknown) => notify(errorMessage(error), true));
+        sync();
         hydrate();
       }
       if (event.type === 'session.error') {
@@ -290,7 +410,11 @@ function usePocketState() {
           notify(error?.data?.message ?? 'В сессии произошла ошибка. Проверьте ответ провайдера.', true);
       }
       setData((previous) => applyEvent(previous, event));
-      if (event.type.startsWith('session.next.') || event.type === 'session.idle') hydrate();
+      if (
+        (event.type.startsWith('session.next.') || event.type === 'session.idle') &&
+        event.properties.sessionID === sessionRef.current?.id
+      )
+        hydrate();
     };
     streamQueue.current = streamQueue.current
       .then(async () => {
@@ -298,14 +422,14 @@ function usePocketState() {
         stop = await client.events(
           handleEvent,
           (next) => {
-            if (cancelled) return;
-            setStatus(next);
+            if (cancelled || unauthorized || client !== clientRef.current) return;
+            setStatus(next === 'live' && !upstreamOnline ? 'connecting' : next);
             if (next === 'live') {
-              void refresh(client).catch((error: unknown) => notify(errorMessage(error), true));
+              sync();
               hydrate();
             }
           },
-          preferences.notifications,
+          streamNotifications,
         );
       })
       .catch((error: unknown) => {
@@ -314,12 +438,18 @@ function usePocketState() {
           notify(errorMessage(error), true);
         }
       });
-    const interval = setInterval(() => {
-      if (!document.hidden) void refresh(client).catch(() => setStatus('reconnecting'));
-    }, 30_000);
+    const resume = () => {
+      if (document.hidden || cancelled || client !== clientRef.current) return;
+      sync();
+      hydrate();
+    };
+    document.addEventListener('visibilitychange', resume);
+    window.addEventListener('online', resume);
     return () => {
       cancelled = true;
-      clearInterval(interval);
+      document.removeEventListener('visibilitychange', resume);
+      window.removeEventListener('online', resume);
+      clearTimeout(retryTimer);
       if (hydrateTimer) clearTimeout(hydrateTimer);
       streamQueue.current = streamQueue.current
         .then(async () => {
@@ -327,14 +457,16 @@ function usePocketState() {
         })
         .catch((error: unknown) => console.error(errorMessage(error)));
     };
-  }, [client, preferences.notifications, loadMessages, notify, refresh]);
+  }, [client, streamNotifications, loadMessages, notify, refresh]);
 
   const openSession = useCallback(
     (target: Session) => {
       navigationSequence.current++;
       setSessionID(target.id);
       setScreen('chat');
-      if (target.model)
+      const choice = sessionChoices.current.get(target.id);
+      if (choice) setModel(choice.model);
+      else if (target.model)
         setModel({
           providerID: target.model.providerID,
           modelID: target.model.id,
@@ -342,9 +474,9 @@ function usePocketState() {
         });
       else if (config.model) {
         const [providerID, ...name] = config.model.split('/');
-        if (providerID && name.length) setModel({ providerID, modelID: name.join('/') });
-      }
-      setAgent(target.agent ?? config.default_agent ?? 'build');
+        setModel(providerID && name.length ? { providerID, modelID: name.join('/') } : undefined);
+      } else setModel(undefined);
+      setAgent(choice?.agent ?? target.agent ?? config.default_agent ?? 'build');
       void loadMessages(target).catch((error: unknown) => notify(errorMessage(error), true));
     },
     [config.default_agent, config.model, loadMessages, notify],
@@ -391,12 +523,8 @@ function usePocketState() {
       }
     };
     void loadChildren();
-    const timer = setInterval(() => {
-      if (!document.hidden) void loadChildren();
-    }, 15000);
     return () => {
       controller.abort();
-      clearInterval(timer);
     };
   }, [client, sessionID, session?.directory]);
 
@@ -428,7 +556,7 @@ function usePocketState() {
           void refresh().catch((error: unknown) => notify(errorMessage(error), true));
           const target = sessionRef.current;
           if (target) void loadMessages(target).catch((error: unknown) => notify(errorMessage(error), true));
-        }
+        } else void drafts.flushAll();
       }),
       PocketNative.addListener('notificationTap', ({ sessionID: id }) => {
         const target = data.sessions.find((item) => item.id === id);
@@ -457,7 +585,17 @@ function usePocketState() {
     return () => {
       for (const handle of handles) void handle.then((value) => value.remove());
     };
-  }, [data.sessions, openSession, openRelatedSession, loadMessages, refresh, notify, connectOpen, screen]);
+  }, [
+    data.sessions,
+    openSession,
+    openRelatedSession,
+    loadMessages,
+    refresh,
+    notify,
+    connectOpen,
+    screen,
+    drafts,
+  ]);
 
   useEffect(() => {
     if (!isNative) return;
@@ -528,10 +666,24 @@ function usePocketState() {
     savedRef.current = saved;
     setConnections(saved);
     if (clientRef.current?.connection.id === id) {
+      connectionSequence.current++;
+      for (const request of messageRequests.current.values()) request.controller.abort();
+      messageRequests.current.clear();
+      loadedLimits.current.clear();
+      sessionChoices.current.clear();
+      setHistoryLimits({});
+      setLoadingSession(undefined);
+      refreshTask.current = undefined;
       clientRef.current = undefined;
       setClient(undefined);
       setStatus('offline');
       setData(emptyData());
+      setProjects([]);
+      setProviders({ all: [], connected: [], default: {} });
+      setAgents([]);
+      setConfig({});
+      setModel(undefined);
+      setBridgeInfo(undefined);
       setSessionID(undefined);
       setScreen('sessions');
     }
@@ -539,11 +691,13 @@ function usePocketState() {
 
   const saveConfig = useCallback(
     async (patch: Partial<Config>) => {
-      if (!clientRef.current) throw new Error('Сначала подключитесь к компьютеру');
-      const updated = await clientRef.current.request<Config>('/global/config', {
+      const source = clientRef.current;
+      if (!source) throw new Error('Сначала подключитесь к компьютеру');
+      const updated = await source.request<Config>('/global/config', {
         method: 'PATCH',
         data: patch,
       });
+      if (source !== clientRef.current) return;
       setConfig(updated);
       notify('Сохранено на компьютере. Некоторые плагины применят изменения после перезапуска OpenCode.');
       await refresh();
@@ -553,17 +707,42 @@ function usePocketState() {
 
   const createSession = useCallback(
     async (title: string, directory?: string) => {
-      if (!clientRef.current) throw new Error('Сначала подключитесь к компьютеру');
-      const created = await clientRef.current.request<Session>('/session', {
+      const source = clientRef.current;
+      if (!source) throw new Error('Сначала подключитесь к компьютеру');
+      const created = await source.request<Session>('/session', {
         method: 'POST',
         data: { title: title.trim() || undefined },
         directory,
       });
-      setData((previous) => ({ ...previous, sessions: [created, ...previous.sessions] }));
+      if (source !== clientRef.current) return created;
+      setData((previous) => ({
+        ...previous,
+        sessions: [created, ...previous.sessions.filter((item) => item.id !== created.id)],
+      }));
       openSession(created);
       return created;
     },
     [openSession],
+  );
+
+  const archiveSession = useCallback(
+    async (target: Session, archived: boolean) => {
+      const source = clientRef.current;
+      if (!source) throw new Error('Сначала подключитесь к компьютеру');
+      const updated = await source.request<Session>(`/session/${encodeURIComponent(target.id)}`, {
+        method: 'PATCH',
+        directory: target.directory,
+        data: { time: { archived: archived ? Date.now() : 0 } },
+      });
+      if (source !== clientRef.current) return;
+      setData((previous) => ({
+        ...previous,
+        sessions: [...previous.sessions.filter((item) => item.id !== updated.id), updated],
+      }));
+      if (archived) setScreen('sessions');
+      notify(archived ? 'Сессия перенесена в архив' : 'Сессия восстановлена');
+    },
+    [notify],
   );
 
   const haptic = useCallback(() => {
@@ -593,6 +772,10 @@ function usePocketState() {
     connections,
     client,
     data,
+    drafts,
+    sessionFilters,
+    setSessionFilters,
+    historyLimits,
     setData,
     projects,
     providers,
@@ -627,12 +810,13 @@ function usePocketState() {
     pairingInput,
     setPairingInput,
     loadMessages,
-    messageLoading,
+    messageLoading: loadingSession === sessionID,
     pendingCount,
     connectedModels,
     forget,
     saveConfig,
     createSession,
+    archiveSession,
     haptic,
   };
 }

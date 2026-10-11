@@ -7,6 +7,8 @@ import type {
   PendingPermission,
   Part,
   Message,
+  Todo,
+  SnapshotFileDiff,
 } from '../types';
 
 export type LiveData = {
@@ -15,6 +17,8 @@ export type LiveData = {
   questions: PendingQuestion[];
   permissions: PendingPermission[];
   messages: Record<string, MessageEntry[]>;
+  todos: Record<string, Todo[]>;
+  diffs: Record<string, SnapshotFileDiff[]>;
 };
 export const emptyData = (): LiveData => ({
   sessions: [],
@@ -22,6 +26,8 @@ export const emptyData = (): LiveData => ({
   questions: [],
   permissions: [],
   messages: {},
+  todos: {},
+  diffs: {},
 });
 function upsert<T extends { id: string }>(items: T[], value: T): T[] {
   const index = items.findIndex((item) => item.id === value.id);
@@ -32,6 +38,10 @@ function upsert<T extends { id: string }>(items: T[], value: T): T[] {
 export function applyEvent(state: LiveData, event: ServerEvent): LiveData {
   const p = event.properties;
   const sessionID = typeof p.sessionID === 'string' ? p.sessionID : undefined;
+  if (event.type === 'todo.updated' && sessionID && Array.isArray(p.todos))
+    return { ...state, todos: { ...state.todos, [sessionID]: p.todos as Todo[] } };
+  if (event.type === 'session.diff' && sessionID && Array.isArray(p.diff))
+    return { ...state, diffs: { ...state.diffs, [sessionID]: p.diff as SnapshotFileDiff[] } };
   if ((event.type === 'session.created' || event.type === 'session.updated') && p.info) {
     const session = p.info as Session;
     if (!session.id) return state;
@@ -39,7 +49,24 @@ export function applyEvent(state: LiveData, event: ServerEvent): LiveData {
   }
   if (event.type === 'session.deleted') {
     const id = (p.info as Session | undefined)?.id ?? sessionID;
-    return { ...state, sessions: state.sessions.filter((session) => session.id !== id) };
+    if (!id) return state;
+    const removed = new Set([id]);
+    let size = 0;
+    while (size !== removed.size) {
+      size = removed.size;
+      for (const session of state.sessions)
+        if (session.parentID && removed.has(session.parentID)) removed.add(session.id);
+    }
+    return {
+      ...state,
+      sessions: state.sessions.filter((session) => !removed.has(session.id)),
+      messages: Object.fromEntries(Object.entries(state.messages).filter(([key]) => !removed.has(key))),
+      todos: Object.fromEntries(Object.entries(state.todos).filter(([key]) => !removed.has(key))),
+      diffs: Object.fromEntries(Object.entries(state.diffs).filter(([key]) => !removed.has(key))),
+      statuses: Object.fromEntries(Object.entries(state.statuses).filter(([key]) => !removed.has(key))),
+      questions: state.questions.filter((item) => !removed.has(item.sessionID)),
+      permissions: state.permissions.filter((item) => !removed.has(item.sessionID)),
+    };
   }
   if (event.type === 'session.status' && sessionID && p.status)
     return { ...state, statuses: { ...state.statuses, [sessionID]: p.status as SessionStatus } };

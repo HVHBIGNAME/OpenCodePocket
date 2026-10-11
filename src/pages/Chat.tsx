@@ -2,6 +2,9 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
   ArrowDown,
   ArrowLeft,
+  Archive,
+  ArchiveRestore,
+  Brain,
   ChevronRight,
   CheckSquare,
   Code2,
@@ -12,6 +15,7 @@ import {
   MoreHorizontal,
   Pencil,
   Share2,
+  Search,
   Split,
 } from 'lucide-react';
 import { usePocket } from '../store/PocketProvider';
@@ -21,21 +25,40 @@ import { MessageView } from '../components/MessageView';
 import { QuestionCard, PermissionCard } from '../components/Requests';
 import { Composer } from '../components/Composer';
 import { SessionDetails } from '../components/SessionDetails';
+import { ChatSearch } from '../components/ChatSearch';
 import type { MessageEntry, Session } from '../types';
 
 const emptyMessages: MessageEntry[] = [];
 
 export function Chat() {
-  const { session, data, setScreen, messageLoading, loadMessages, perform, status, openRelatedSession } =
-    usePocket();
+  const {
+    session,
+    data,
+    setScreen,
+    messageLoading,
+    loadMessages,
+    historyLimits,
+    perform,
+    status,
+    openRelatedSession,
+    refresh,
+    refreshing,
+    setConnectOpen,
+  } = usePocket();
   const [tab, setTab] = useState<'chat' | 'diff' | 'todos' | 'files'>('chat');
   const [actions, setActions] = useState(false);
   const [requestsOpen, setRequestsOpen] = useState(false);
-  const [limit, setLimit] = useState(100);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchMatch, setSearchMatch] = useState<string>();
   const [atBottom, setAtBottom] = useState(true);
   const scrollRef = useRef<HTMLDivElement>(null);
   const selectedID = session?.id;
   const entries = selectedID ? (data.messages[selectedID] ?? emptyMessages) : emptyMessages;
+  const missingReasoning = entries.some((entry) =>
+    entry.parts.some((part) => part.type === 'reasoning' && !part.text.trim() && part.time.end),
+  );
+  const limit = selectedID ? (historyLimits[selectedID] ?? 100) : 100;
+  const prependAnchor = useRef<{ id: string; top: number; entries: MessageEntry[] } | undefined>(undefined);
   const previousSession = useRef(session?.id);
   const positions = useRef(new Map<string, { top: number; bottom: boolean }>());
   const children = data.sessions.filter((item) => item.parentID === session?.id);
@@ -48,7 +71,9 @@ export function Chat() {
   useLayoutEffect(() => {
     if (selectedID !== previousSession.current) {
       setTab('chat');
-      setLimit(100);
+      setSearchOpen(false);
+      setSearchMatch(undefined);
+      prependAnchor.current = undefined;
       const saved = selectedID ? positions.current.get(selectedID) : undefined;
       setAtBottom(saved?.bottom ?? true);
       if (scrollRef.current)
@@ -56,6 +81,11 @@ export function Chat() {
       setRequestsOpen(false);
       setActions(false);
       previousSession.current = selectedID;
+    } else if (prependAnchor.current && prependAnchor.current.entries !== entries && scrollRef.current) {
+      const anchor = prependAnchor.current;
+      const element = scrollRef.current.querySelector(`[data-message-id="${CSS.escape(anchor.id)}"]`);
+      if (element) scrollRef.current.scrollTop += element.getBoundingClientRect().top - anchor.top;
+      prependAnchor.current = undefined;
     } else if (atBottom && scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [selectedID, entries, atBottom, tab]);
   useLayoutEffect(() => {
@@ -106,6 +136,15 @@ export function Chat() {
           </span>
           <h1>{session.title}</h1>
         </div>
+        <IconButton
+          label="Поиск по диалогу"
+          onClick={() => {
+            setTab('chat');
+            setSearchOpen((open) => !open);
+          }}
+        >
+          <Search size={19} />
+        </IconButton>
         <IconButton label="Действия с сессией" onClick={() => setActions(true)}>
           <MoreHorizontal size={21} />
         </IconButton>
@@ -119,7 +158,12 @@ export function Chat() {
             ['files', FileCode2, 'Файлы'],
           ] as const
         ).map(([value, Icon, label]) => (
-          <button key={value} className={tab === value ? 'active' : ''} onClick={() => setTab(value)}>
+          <button
+            key={value}
+            aria-current={tab === value ? 'page' : undefined}
+            className={tab === value ? 'active' : ''}
+            onClick={() => setTab(value)}
+          >
             <Icon size={16} />
             {label}
           </button>
@@ -150,10 +194,42 @@ export function Chat() {
         </details>
       )}
       {status !== 'live' && (
-        <div className="offline-banner">Восстанавливаем связь. Твой черновик сохранится.</div>
+        <div className="offline-banner">
+          <span>
+            {status === 'offline' ? 'Нет доступа к серверу.' : 'Восстанавливаем связь.'} Черновик сохранён в
+            приложении.
+          </span>
+          <Button
+            variant="ghost"
+            busy={refreshing}
+            onClick={() => (status === 'offline' ? setConnectOpen(true) : void perform(() => refresh()))}
+          >
+            {status === 'offline' ? 'Подключиться' : 'Повторить'}
+          </Button>
+        </div>
       )}
       {tab === 'chat' ? (
         <>
+          {searchOpen && (
+            <ChatSearch
+              key={`search.${session.id}`}
+              entries={entries}
+              onClose={() => {
+                setSearchOpen(false);
+                setSearchMatch(undefined);
+              }}
+              onSelect={(id) => {
+                setAtBottom(false);
+                setSearchMatch(id);
+                const element = scrollRef.current?.querySelector(`[data-message-id="${CSS.escape(id)}"]`);
+                if (element && scrollRef.current) {
+                  for (const detail of element.querySelectorAll('details')) detail.open = true;
+                  scrollRef.current.scrollTop +=
+                    element.getBoundingClientRect().top - scrollRef.current.getBoundingClientRect().top - 12;
+                }
+              }}
+            />
+          )}
           <div
             className="chat-scroll"
             ref={scrollRef}
@@ -167,15 +243,40 @@ export function Chat() {
             }}
           >
             <div className="messages-inner">
+              {missingReasoning && (
+                <details className="reasoning-availability">
+                  <summary>
+                    <Brain size={14} />О тексте рассуждений
+                  </summary>
+                  <p>
+                    Сервер передал некоторые блоки рассуждений без текста. Доступный текст показывается в
+                    сообщениях; пустые блоки скрыты.
+                  </p>
+                </details>
+              )}
               {entries.length >= limit && (
                 <div className="load-history">
                   <Button
                     variant="ghost"
                     busy={messageLoading}
                     onClick={() => {
-                      const next = limit + 100;
-                      setLimit(next);
-                      void perform(() => loadMessages(session, next));
+                      const scroller = scrollRef.current;
+                      const anchor =
+                        scroller &&
+                        [...scroller.querySelectorAll<HTMLElement>('[data-message-id]')].find(
+                          (item) =>
+                            item.getBoundingClientRect().bottom > scroller.getBoundingClientRect().top,
+                        );
+                      if (anchor?.dataset.messageId)
+                        prependAnchor.current = {
+                          id: anchor.dataset.messageId,
+                          top: anchor.getBoundingClientRect().top,
+                          entries,
+                        };
+                      setAtBottom(false);
+                      void perform(() => loadMessages(session, limit + 100)).then((success) => {
+                        if (!success) prependAnchor.current = undefined;
+                      });
                     }}
                   >
                     Загрузить более ранние сообщения
@@ -194,13 +295,10 @@ export function Chat() {
                   </EmptyState>
                 ))}
               {entries.map((entry) => (
-                <MessageView key={entry.info.id} entry={entry} />
+                <MessageView key={entry.info.id} entry={entry} highlighted={entry.info.id === searchMatch} />
               ))}
               {busy && (
                 <div className="thinking-indicator">
-                  <span />
-                  <span />
-                  <span />
                   <span className="mono">OpenCode работает</span>
                 </div>
               )}
@@ -219,7 +317,13 @@ export function Chat() {
               <ChevronRight size={18} />
             </button>
           )}
-          <Composer key={session.id} session={session} />
+          {session.time.archived ? (
+            <div className="archived-notice">
+              Сессия в архиве. Восстановите её через меню действий, чтобы продолжить.
+            </div>
+          ) : (
+            <Composer key={session.id} session={session} />
+          )}
         </>
       ) : (
         <div className="details-scroll">
@@ -244,7 +348,7 @@ export function Chat() {
 }
 
 function SessionActions({ session, onClose }: { session: Session; onClose: () => void }) {
-  const { client, perform, refresh, openSession } = usePocket();
+  const { client, perform, refresh, openSession, archiveSession } = usePocket();
   const [title, setTitle] = useState(session.title);
   const [busy, setBusy] = useState(false);
   const [share, setShare] = useState(session.share?.url);
@@ -279,6 +383,19 @@ function SessionActions({ session, onClose }: { session: Session; onClose: () =>
         </Button>
       </form>
       <div className="form-stack session-action-buttons">
+        <Button
+          variant="secondary"
+          disabled={busy}
+          onClick={() =>
+            operate(async () => {
+              await archiveSession(session, !session.time.archived);
+              onClose();
+            })
+          }
+        >
+          {session.time.archived ? <ArchiveRestore size={17} /> : <Archive size={17} />}
+          {session.time.archived ? 'Восстановить сессию' : 'Архивировать сессию'}
+        </Button>
         <Button
           variant="secondary"
           disabled={busy}
@@ -327,6 +444,7 @@ function SessionActions({ session, onClose }: { session: Session; onClose: () =>
             </div>
             <Button
               variant="ghost"
+              disabled={busy}
               onClick={() =>
                 operate(async () => {
                   await client!.request(`/session/${encodeURIComponent(session.id)}/share`, {

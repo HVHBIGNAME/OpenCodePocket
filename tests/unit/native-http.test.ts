@@ -8,6 +8,28 @@ import { isAbortedTool, isGenerationCancelled } from '../../src/lib/session-erro
 
 beforeEach(() => request.mockReset());
 describe('native requests and cancellation', () => {
+  it('rejects successful tunnel HTML responses instead of passing a string to the UI', async () => {
+    request.mockResolvedValue({ status: 200, data: '<html>login</html>' });
+    await expect(http('https://example.test/api')).rejects.toMatchObject({ status: 502 });
+  });
+  it('does not dispatch an already cancelled native request', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    await expect(
+      http('https://example.test/api', 'GET', undefined, undefined, controller.signal),
+    ).rejects.toMatchObject({ name: 'AbortError' });
+    expect(request).not.toHaveBeenCalled();
+  });
+  it('does not apply native responses cancelled while in flight', async () => {
+    const controller = new AbortController();
+    request.mockImplementation(async () => {
+      controller.abort();
+      return { status: 200, data: '[]' };
+    });
+    await expect(
+      http('https://example.test/api', 'GET', undefined, undefined, controller.signal),
+    ).rejects.toMatchObject({ name: 'AbortError' });
+  });
   it('gives iOS enough time for uploads instead of overriding readTimeout with 15 seconds', async () => {
     request.mockResolvedValue({ status: 204, data: '' });
     const data = {

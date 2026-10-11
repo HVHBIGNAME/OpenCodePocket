@@ -6,6 +6,7 @@ import { decodeEvent, SseDecoder, type ServerEvent } from '../../../shared/proto
 export class EventRelay {
   private listeners = new Map<ServerResponse, string>();
   private history: { id: string; frame: string }[] = [];
+  private historyBytes = 0;
   private seen = new Set<string>();
   private epoch = randomBytes(6).toString('hex');
   private sequence = 0;
@@ -42,7 +43,11 @@ export class EventRelay {
     const id = `${this.epoch}:${++this.sequence}`;
     const frame = `id: ${id}\ndata: ${JSON.stringify(event)}\n\n`;
     this.history.push({ id, frame });
-    if (this.history.length > 200) this.history.shift();
+    this.historyBytes += Buffer.byteLength(frame);
+    while (this.history.length > 1024 || this.historyBytes > 4 * 1024 * 1024) {
+      const removed = this.history.shift();
+      if (removed) this.historyBytes -= Buffer.byteLength(removed.frame);
+    }
     for (const response of this.listeners.keys()) {
       if (response.writableLength > 2 * 1024 * 1024) response.destroy();
       else response.write(frame);
@@ -68,6 +73,8 @@ export class EventRelay {
           redirect: 'error',
         });
         if (!response.ok || !response.body) throw new Error(`OpenCode events HTTP ${response.status}`);
+        if (!response.headers.get('content-type')?.includes('text/event-stream'))
+          throw new Error('OpenCode returned a page instead of an event stream');
         this.online = true;
         failures = 0;
         this.publish({ type: 'occ.upstream', properties: { online: true } });

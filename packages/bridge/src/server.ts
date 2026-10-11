@@ -120,6 +120,7 @@ export async function createBridge(options: BridgeOptions) {
     response.setHeader('Cache-Control', 'no-store');
     response.setHeader('X-Content-Type-Options', 'nosniff');
     void handle(request, response).catch((error: unknown) => {
+      if (response.destroyed) return;
       if (response.headersSent) {
         response.destroy();
         return;
@@ -305,7 +306,7 @@ export async function createBridge(options: BridgeOptions) {
     }
   }
 
-  server.requestTimeout = 30_000;
+  server.requestTimeout = 150_000;
   server.headersTimeout = 15_000;
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject);

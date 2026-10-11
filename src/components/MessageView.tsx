@@ -38,7 +38,7 @@ function PartView({ part }: { part: Part }) {
     case 'text':
       return part.ignored ? null : <RichText text={part.text} />;
     case 'reasoning':
-      return <ReasoningView part={part} />;
+      return part.text.trim() ? <ReasoningView part={part} /> : null;
     case 'tool': {
       if (part.tool === 'task') return <AgentTask part={part} />;
       const state = part.state;
@@ -135,14 +135,23 @@ function PartView({ part }: { part: Part }) {
   }
 }
 
-export const MessageView = memo(function MessageView({ entry }: { entry: MessageEntry }) {
+export const MessageView = memo(function MessageView({
+  entry,
+  highlighted = false,
+}: {
+  entry: MessageEntry;
+  highlighted?: boolean;
+}) {
   const assistant = entry.info.role === 'assistant';
   const text = entry.parts
     .filter((part) => part.type === 'text')
     .map((part) => part.text)
     .join('\n');
   return (
-    <article className={`message ${assistant ? 'message-assistant' : 'message-user'}`}>
+    <article
+      data-message-id={entry.info.id}
+      className={`message ${assistant ? 'message-assistant' : 'message-user'} ${highlighted ? 'message-highlighted' : ''}`}
+    >
       <div className="message-content">
         <header className="message-header">
           <strong>{assistant ? 'OpenCode' : 'Ты'}</strong>

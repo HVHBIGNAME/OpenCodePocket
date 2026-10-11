@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { parseAppearance, themes } from '../../src/lib/appearance';
+import { loadTheme } from '../../src/themes/loader';
 
 describe('appearance preferences', () => {
   it('restores known themes and resolves the system color scheme', () => {
@@ -16,15 +17,16 @@ describe('appearance preferences', () => {
       expect(parseAppearance(value, false)).toEqual({ theme: 'mercury', scheme: 'dark', mode: 'dark' });
     }
   });
-  it('includes the complete upstream catalog with both color variants', () => {
+  it('loads the complete upstream catalog with both color variants on demand', async () => {
     expect(themes).toHaveLength(37);
     expect(new Set(themes.map((theme) => theme.id)).size).toBe(themes.length);
     for (const theme of themes) {
+      const palette = await loadTheme(theme.id);
       for (const mode of ['light', 'dark'] as const) {
-        expect(Object.keys(theme[mode]).length).toBeGreaterThan(250);
-        expect(theme[mode]['background-base']).toMatch(/^#[\da-f]{6}$/i);
-        expect(theme[mode]['text-base']).toMatch(/^#[\da-f]{6}$/i);
-        expect(theme[mode]['markdown-text']).toBeTruthy();
+        expect(Object.keys(palette[mode]).length).toBeGreaterThan(250);
+        expect(palette[mode]['background-base']).toMatch(/^#[\da-f]{6}$/i);
+        expect(palette[mode]['text-base']).toMatch(/^#[\da-f]{6}$/i);
+        expect(palette[mode]['markdown-text']).toBeTruthy();
       }
     }
   });

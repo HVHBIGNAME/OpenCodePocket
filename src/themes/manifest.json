@@ -1,0 +1,745 @@
+{
+  "revision": "3f393d78bfc3f0826b2c7080e57964c235704695",
+  "themes": [
+    {
+      "id": "amoled",
+      "name": "AMOLED",
+      "preview": {
+        "light": {
+          "background-base": "#f1f1f1",
+          "text-strong": "#010101",
+          "text-interactive-base": "#5806e6",
+          "icon-success-base": "#20e679",
+          "border-base": "#b9b9b9"
+        },
+        "dark": {
+          "background-base": "#000000",
+          "text-strong": "#ffffff",
+          "text-interactive-base": "#d9cafc",
+          "icon-success-base": "#2bbd69",
+          "border-base": "#434343"
+        }
+      }
+    },
+    {
+      "id": "aura",
+      "name": "Aura",
+      "preview": {
+        "light": {
+          "background-base": "#f6f3fe",
+          "text-strong": "#170e28",
+          "text-interactive-base": "#986af4",
+          "icon-success-base": "#56e093",
+          "border-base": "#c5c1d0"
+        },
+        "dark": {
+          "background-base": "#0b0a10",
+          "text-strong": "#fdfdfd",
+          "text-interactive-base": "#d7cbff",
+          "icon-success-base": "#14bb8e",
+          "border-base": "#47464b"
+        }
+      }
+    },
+    {
+      "id": "ayu",
+      "name": "Ayu",
+      "preview": {
+        "light": {
+          "background-base": "#fdfbf5",
+          "text-strong": "#2b3540",
+          "text-interactive-base": "#269ec2",
+          "icon-success-base": "#77db92",
+          "border-base": "#d3d3d2"
+        },
+        "dark": {
+          "background-base": "#060a0f",
+          "text-strong": "#fbfbfc",
+          "text-interactive-base": "#96dfff",
+          "icon-success-base": "#3fa707",
+          "border-base": "#3d4146"
+        }
+      }
+    },
+    {
+      "id": "carbonfox",
+      "name": "Carbonfox",
+      "preview": {
+        "light": {
+          "background-base": "#eeeeee",
+          "text-strong": "#070707",
+          "text-interactive-base": "#105ae6",
+          "icon-success-base": "#75dc88",
+          "border-base": "#b9b9b9"
+        },
+        "dark": {
+          "background-base": "#222222",
+          "text-strong": "#fefefe",
+          "text-interactive-base": "#bcd5fe",
+          "icon-success-base": "#1c9545",
+          "border-base": "#59595a"
+        }
+      }
+    },
+    {
+      "id": "catppuccin",
+      "name": "Catppuccin",
+      "preview": {
+        "light": {
+          "background-base": "#f7e6e2",
+          "text-strong": "#2a2c46",
+          "text-interactive-base": "#6578fe",
+          "icon-success-base": "#75de60",
+          "border-base": "#cdc1c4"
+        },
+        "dark": {
+          "background-base": "#0f0f1d",
+          "text-strong": "#fafbfe",
+          "text-interactive-base": "#c9d0fe",
+          "icon-success-base": "#69aa2f",
+          "border-base": "#414456"
+        }
+      }
+    },
+    {
+      "id": "catppuccin-frappe",
+      "name": "Catppuccin Frappe",
+      "preview": {
+        "light": {
+          "background-base": "#dfe0e3",
+          "text-strong": "#7e87ab",
+          "text-interactive-base": "#7c97e5",
+          "icon-success-base": "#a3d283",
+          "border-base": "#d9dce7"
+        },
+        "dark": {
+          "background-base": "#1b1e2e",
+          "text-strong": "#fafbfe",
+          "text-interactive-base": "#c3d3fc",
+          "icon-success-base": "#69aa2f",
+          "border-base": "#484d63"
+        }
+      }
+    },
+    {
+      "id": "catppuccin-macchiato",
+      "name": "Catppuccin Macchiato",
+      "preview": {
+        "light": {
+          "background-base": "#dddde1",
+          "text-strong": "#8189aa",
+          "text-interactive-base": "#75a0f9",
+          "icon-success-base": "#9bd389",
+          "border-base": "#d8dbe6"
+        },
+        "dark": {
+          "background-base": "#131526",
+          "text-strong": "#fafbfe",
+          "text-interactive-base": "#bfd4fe",
+          "icon-success-base": "#61b242",
+          "border-base": "#43475d"
+        }
+      }
+    },
+    {
+      "id": "cobalt2",
+      "name": "Cobalt2",
+      "preview": {
+        "light": {
+          "background-base": "#ffffff",
+          "text-strong": "#021c2d",
+          "text-interactive-base": "#045cb8",
+          "icon-success-base": "#71de74",
+          "border-base": "#c7ced3"
+        },
+        "dark": {
+          "background-base": "#041f32",
+          "text-strong": "#ffffff",
+          "text-interactive-base": "#b9d6fb",
+          "icon-success-base": "#4dbd19",
+          "border-base": "#465a68"
+        }
+      }
+    },
+    {
+      "id": "cursor",
+      "name": "Cursor",
+      "preview": {
+        "light": {
+          "background-base": "#fcfcfc",
+          "text-strong": "#050505",
+          "text-interactive-base": "#0e5b8b",
+          "icon-success-base": "#6fdaad",
+          "border-base": "#c3c3c3"
+        },
+        "dark": {
+          "background-base": "#0e0e0e",
+          "text-strong": "#fcfcfc",
+          "text-interactive-base": "#54eee9",
+          "icon-success-base": "#078146",
+          "border-base": "#464646"
+        }
+      }
+    },
+    {
+      "id": "dracula",
+      "name": "Dracula",
+      "preview": {
+        "light": {
+          "background-base": "#f9f9f4",
+          "text-strong": "#0c0b1a",
+          "text-interactive-base": "#7358f7",
+          "icon-success-base": "#49e28b",
+          "border-base": "#c4c4c4"
+        },
+        "dark": {
+          "background-base": "#0f1019",
+          "text-strong": "#fefefe",
+          "text-interactive-base": "#dcc8fe",
+          "icon-success-base": "#09c04e",
+          "border-base": "#4d4d52"
+        }
+      }
+    },
+    {
+      "id": "everforest",
+      "name": "Everforest",
+      "preview": {
+        "light": {
+          "background-base": "#fdf8e8",
+          "text-strong": "#334048",
+          "text-interactive-base": "#839511",
+          "icon-success-base": "#b8cf3b",
+          "border-base": "#d6d5cb"
+        },
+        "dark": {
+          "background-base": "#181f25",
+          "text-strong": "#fbfaf7",
+          "text-interactive-base": "#bce575",
+          "icon-success-base": "#779a2c",
+          "border-base": "#494b48"
+        }
+      }
+    },
+    {
+      "id": "flexoki",
+      "name": "Flexoki",
+      "preview": {
+        "light": {
+          "background-base": "#fffcf3",
+          "text-strong": "#040303",
+          "text-interactive-base": "#10539c",
+          "icon-success-base": "#b0d060",
+          "border-base": "#c5c2bb"
+        },
+        "dark": {
+          "background-base": "#090808",
+          "text-strong": "#fbfaf9",
+          "text-interactive-base": "#b3d8fb",
+          "icon-success-base": "#67771c",
+          "border-base": "#3d3c39"
+        }
+      }
+    },
+    {
+      "id": "github",
+      "name": "GitHub",
+      "preview": {
+        "light": {
+          "background-base": "#ffffff",
+          "text-strong": "#0e1319",
+          "text-interactive-base": "#0c5fc5",
+          "icon-success-base": "#76dc88",
+          "border-base": "#cacbcc"
+        },
+        "dark": {
+          "background-base": "#05080e",
+          "text-strong": "#fafbfc",
+          "text-interactive-base": "#b7d7fd",
+          "icon-success-base": "#1a9132",
+          "border-base": "#393d44"
+        }
+      }
+    },
+    {
+      "id": "gruvbox",
+      "name": "Gruvbox",
+      "preview": {
+        "light": {
+          "background-base": "#fcf5d7",
+          "text-strong": "#211d1b",
+          "text-interactive-base": "#075b6b",
+          "icon-success-base": "#cbc664",
+          "border-base": "#cdc7b0"
+        },
+        "dark": {
+          "background-base": "#181818",
+          "text-strong": "#fdfbf7",
+          "text-interactive-base": "#a7e3cd",
+          "icon-success-base": "#8e9019",
+          "border-base": "#504b41"
+        }
+      }
+    },
+    {
+      "id": "kanagawa",
+      "name": "Kanagawa",
+      "preview": {
+        "light": {
+          "background-base": "#f4ede3",
+          "text-strong": "#34231a",
+          "text-interactive-base": "#174664",
+          "icon-success-base": "#aad079",
+          "border-base": "#cdc4ba"
+        },
+        "dark": {
+          "background-base": "#101018",
+          "text-strong": "#fcfbf8",
+          "text-interactive-base": "#c0d4fc",
+          "icon-success-base": "#68960e",
+          "border-base": "#464543"
+        }
+      }
+    },
+    {
+      "id": "lucent-orng",
+      "name": "Lucent Orng",
+      "preview": {
+        "light": {
+          "background-base": "#fef7f3",
+          "text-strong": "#090909",
+          "text-interactive-base": "#e14d17",
+          "icon-success-base": "#9ec3fa",
+          "border-base": "#c6c1be"
+        },
+        "dark": {
+          "background-base": "#1a0c08",
+          "text-strong": "#fdfdfd",
+          "text-interactive-base": "#fdc4b3",
+          "icon-success-base": "#1277e2",
+          "border-base": "#524845"
+        }
+      }
+    },
+    {
+      "id": "material",
+      "name": "Material",
+      "preview": {
+        "light": {
+          "background-base": "#fafafa",
+          "text-strong": "#0d191f",
+          "text-interactive-base": "#24a2aa",
+          "icon-success-base": "#a7d26a",
+          "border-base": "#c6c9cb"
+        },
+        "dark": {
+          "background-base": "#131e23",
+          "text-strong": "#fdffff",
+          "text-interactive-base": "#ace4fc",
+          "icon-success-base": "#83b21b",
+          "border-base": "#4d595d"
+        }
+      }
+    },
+    {
+      "id": "matrix",
+      "name": "Matrix",
+      "preview": {
+        "light": {
+          "background-base": "#f0f5ed",
+          "text-strong": "#08180c",
+          "text-interactive-base": "#11a7f4",
+          "icon-success-base": "#3ae562",
+          "border-base": "#bdc5bb"
+        },
+        "dark": {
+          "background-base": "#040704",
+          "text-strong": "#f1fff5",
+          "text-interactive-base": "#aadafe",
+          "icon-success-base": "#21be60",
+          "border-base": "#1d482a"
+        }
+      }
+    },
+    {
+      "id": "mercury",
+      "name": "Mercury",
+      "preview": {
+        "light": {
+          "background-base": "#ffffff",
+          "text-strong": "#1b1b29",
+          "text-interactive-base": "#3844de",
+          "icon-success-base": "#79d9a3",
+          "border-base": "#ceced1"
+        },
+        "dark": {
+          "background-base": "#0b0b14",
+          "text-strong": "#fcfcfc",
+          "text-interactive-base": "#c4d2fd",
+          "icon-success-base": "#16a167",
+          "border-base": "#42424b"
+        }
+      }
+    },
+    {
+      "id": "monokai",
+      "name": "Monokai",
+      "preview": {
+        "light": {
+          "background-base": "#fdf9ef",
+          "text-strong": "#140e04",
+          "text-interactive-base": "#b867fe",
+          "icon-success-base": "#6fdf6a",
+          "border-base": "#c9c5bb"
+        },
+        "dark": {
+          "background-base": "#161712",
+          "text-strong": "#fefefe",
+          "text-interactive-base": "#d8cbfb",
+          "icon-success-base": "#7faf20",
+          "border-base": "#52524d"
+        }
+      }
+    },
+    {
+      "id": "nightowl",
+      "name": "Night Owl",
+      "preview": {
+        "light": {
+          "background-base": "#f1f1f1",
+          "text-strong": "#232234",
+          "text-interactive-base": "#2f66e0",
+          "icon-success-base": "#5dd8cd",
+          "border-base": "#c6c6ca"
+        },
+        "dark": {
+          "background-base": "#010a15",
+          "text-strong": "#fbfcfd",
+          "text-interactive-base": "#c0d4fc",
+          "icon-success-base": "#8faf28",
+          "border-base": "#39424d"
+        }
+      }
+    },
+    {
+      "id": "nord",
+      "name": "Nord",
+      "preview": {
+        "light": {
+          "background-base": "#eef1f5",
+          "text-strong": "#141a26",
+          "text-interactive-base": "#4a76ac",
+          "icon-success-base": "#9bcccb",
+          "border-base": "#bfc3c9"
+        },
+        "dark": {
+          "background-base": "#191e29",
+          "text-strong": "#fcfdfe",
+          "text-interactive-base": "#8be3fb",
+          "icon-success-base": "#71994a",
+          "border-base": "#4f545e"
+        }
+      }
+    },
+    {
+      "id": "oc-2",
+      "name": "OC-2",
+      "preview": {
+        "light": {
+          "background-base": "#f8f8f8",
+          "text-strong": "#171717",
+          "text-interactive-base": "#0445e6",
+          "icon-success-base": "#0ABE00",
+          "border-base": "#c1c0c0"
+        },
+        "dark": {
+          "background-base": "#121212",
+          "text-strong": "#EDEDED",
+          "text-interactive-base": "#c0d4fb",
+          "icon-success-base": "#089b00",
+          "border-base": "#4d4c4a"
+        }
+      }
+    },
+    {
+      "id": "one-dark",
+      "name": "One Dark",
+      "preview": {
+        "light": {
+          "background-base": "#fafafa",
+          "text-strong": "#1d1f27",
+          "text-interactive-base": "#2b68f4",
+          "icon-success-base": "#81da7e",
+          "border-base": "#cbcbcd"
+        },
+        "dark": {
+          "background-base": "#161920",
+          "text-strong": "#f8f9fa",
+          "text-interactive-base": "#afd9fe",
+          "icon-success-base": "#5e9f14",
+          "border-base": "#3d414a"
+        }
+      }
+    },
+    {
+      "id": "onedarkpro",
+      "name": "One Dark Pro",
+      "preview": {
+        "light": {
+          "background-base": "#f6f7f9",
+          "text-strong": "#131722",
+          "text-interactive-base": "#467ff5",
+          "icon-success-base": "#7ada99",
+          "border-base": "#c4c6cb"
+        },
+        "dark": {
+          "background-base": "#0f131a",
+          "text-strong": "#f8f9fa",
+          "text-interactive-base": "#afd9fe",
+          "icon-success-base": "#5e9f14",
+          "border-base": "#383d46"
+        }
+      }
+    },
+    {
+      "id": "opencode",
+      "name": "OpenCode",
+      "preview": {
+        "light": {
+          "background-base": "#ffffff",
+          "text-strong": "#090909",
+          "text-interactive-base": "#086ee2",
+          "icon-success-base": "#76db8e",
+          "border-base": "#c7c7c7"
+        },
+        "dark": {
+          "background-base": "#050505",
+          "text-strong": "#fdfdfd",
+          "text-interactive-base": "#ffc6a2",
+          "icon-success-base": "#0ab24b",
+          "border-base": "#434343"
+        }
+      }
+    },
+    {
+      "id": "orng",
+      "name": "Orng",
+      "preview": {
+        "light": {
+          "background-base": "#ffffff",
+          "text-strong": "#090909",
+          "text-interactive-base": "#e14d17",
+          "icon-success-base": "#9ec3fa",
+          "border-base": "#c7c7c7"
+        },
+        "dark": {
+          "background-base": "#050505",
+          "text-strong": "#fdfdfd",
+          "text-interactive-base": "#fdc4b3",
+          "icon-success-base": "#1277e2",
+          "border-base": "#434343"
+        }
+      }
+    },
+    {
+      "id": "osaka-jade",
+      "name": "Osaka Jade",
+      "preview": {
+        "light": {
+          "background-base": "#f8f7e4",
+          "text-strong": "#020b07",
+          "text-interactive-base": "#249d85",
+          "icon-success-base": "#8fd4a4",
+          "border-base": "#c0c2b2"
+        },
+        "dark": {
+          "background-base": "#06100c",
+          "text-strong": "#fafaf5",
+          "text-interactive-base": "#6aece0",
+          "icon-success-base": "#0a8141",
+          "border-base": "#374031"
+        }
+      }
+    },
+    {
+      "id": "palenight",
+      "name": "Palenight",
+      "preview": {
+        "light": {
+          "background-base": "#fafafa",
+          "text-strong": "#121526",
+          "text-interactive-base": "#3162f9",
+          "icon-success-base": "#a7d26a",
+          "border-base": "#c7c8cc"
+        },
+        "dark": {
+          "background-base": "#161929",
+          "text-strong": "#f8f8fc",
+          "text-interactive-base": "#c0d4fc",
+          "icon-success-base": "#83b21b",
+          "border-base": "#3c4054"
+        }
+      }
+    },
+    {
+      "id": "rosepine",
+      "name": "Rose Pine",
+      "preview": {
+        "light": {
+          "background-base": "#fbf5ef",
+          "text-strong": "#332d53",
+          "text-interactive-base": "#136a89",
+          "icon-success-base": "#86ccec",
+          "border-base": "#d3cdd2"
+        },
+        "dark": {
+          "background-base": "#0c0a16",
+          "text-strong": "#fcfcfe",
+          "text-interactive-base": "#8be4f3",
+          "icon-success-base": "#0c7699",
+          "border-base": "#444251"
+        }
+      }
+    },
+    {
+      "id": "shadesofpurple",
+      "name": "Shades of Purple",
+      "preview": {
+        "light": {
+          "background-base": "#f8effe",
+          "text-strong": "#210f3d",
+          "text-interactive-base": "#7242fb",
+          "icon-success-base": "#35e29f",
+          "border-base": "#cabfd6"
+        },
+        "dark": {
+          "background-base": "#0e051d",
+          "text-strong": "#fefeff",
+          "text-interactive-base": "#dfc8fb",
+          "icon-success-base": "#0eb67d",
+          "border-base": "#4b4359"
+        }
+      }
+    },
+    {
+      "id": "solarized",
+      "name": "Solarized",
+      "preview": {
+        "light": {
+          "background-base": "#fdf8e8",
+          "text-strong": "#2e444b",
+          "text-interactive-base": "#0c80c8",
+          "icon-success-base": "#b7cf44",
+          "border-base": "#d5d6cc"
+        },
+        "dark": {
+          "background-base": "#011820",
+          "text-strong": "#f6f8f8",
+          "text-interactive-base": "#cad0fe",
+          "icon-success-base": "#66751b",
+          "border-base": "#283c42"
+        }
+      }
+    },
+    {
+      "id": "synthwave84",
+      "name": "Synthwave '84",
+      "preview": {
+        "light": {
+          "background-base": "#fafafa",
+          "text-strong": "#110e1f",
+          "text-interactive-base": "#1aafc5",
+          "icon-success-base": "#71de74",
+          "border-base": "#c6c6ca"
+        },
+        "dark": {
+          "background-base": "#151222",
+          "text-strong": "#ffffff",
+          "text-interactive-base": "#82fefb",
+          "icon-success-base": "#2bbb84",
+          "border-base": "#53515c"
+        }
+      }
+    },
+    {
+      "id": "tokyonight",
+      "name": "Tokyonight",
+      "preview": {
+        "light": {
+          "background-base": "#e5e6ea",
+          "text-strong": "#0f1638",
+          "text-interactive-base": "#006fea",
+          "icon-success-base": "#abcf89",
+          "border-base": "#b7bac5"
+        },
+        "dark": {
+          "background-base": "#0d0e17",
+          "text-strong": "#f9faff",
+          "text-interactive-base": "#c0d4fc",
+          "icon-success-base": "#6ba503",
+          "border-base": "#3c4052"
+        }
+      }
+    },
+    {
+      "id": "vercel",
+      "name": "Vercel",
+      "preview": {
+        "light": {
+          "background-base": "#ffffff",
+          "text-strong": "#070707",
+          "text-interactive-base": "#0767dd",
+          "icon-success-base": "#7ddb7e",
+          "border-base": "#c6c6c6"
+        },
+        "dark": {
+          "background-base": "#000000",
+          "text-strong": "#fdfdfd",
+          "text-interactive-base": "#b6d7fc",
+          "icon-success-base": "#148434",
+          "border-base": "#3f3f3f"
+        }
+      }
+    },
+    {
+      "id": "vesper",
+      "name": "Vesper",
+      "preview": {
+        "light": {
+          "background-base": "#f1f1f1",
+          "text-strong": "#040404",
+          "text-interactive-base": "#fdb77c",
+          "icon-success-base": "#68d9bd",
+          "border-base": "#bababa"
+        },
+        "dark": {
+          "background-base": "#080808",
+          "text-strong": "#ffffff",
+          "text-interactive-base": "#fed6b6",
+          "icon-success-base": "#10ba9b",
+          "border-base": "#494949"
+        }
+      }
+    },
+    {
+      "id": "zenburn",
+      "name": "Zenburn",
+      "preview": {
+        "light": {
+          "background-base": "#fffff4",
+          "text-strong": "#222222",
+          "text-interactive-base": "#4d7689",
+          "icon-success-base": "#9bd29a",
+          "border-base": "#d0d0c8"
+        },
+        "dark": {
+          "background-base": "#262626",
+          "text-strong": "#fcfcfa",
+          "text-interactive-base": "#6deaf0",
+          "icon-success-base": "#4e8050",
+          "border-base": "#565652"
+        }
+      }
+    }
+  ]
+}

@@ -214,6 +214,29 @@ const server = createServer((request, response) => {
       return send(response, true);
     }
     if (url.pathname === '/__test/pair') return send(response, bridge.createPairing());
+    if (url.pathname === '/__test/disconnect') {
+      for (const device of bridge.devices.devices) bridge.relay.revoke(device.id);
+      return send(response, true);
+    }
+    if (url.pathname === '/__test/history') {
+      const template = messages.ses_panel![0]!;
+      messages.ses_panel = Array.from({ length: 220 }, (_, index) => {
+        const id = `msg_history_${String(index).padStart(3, '0')}`;
+        return {
+          info: { ...template.info, id, time: { created: now - (220 - index) * 1000 } },
+          parts: [
+            {
+              type: 'text',
+              id: `prt_${id}`,
+              sessionID: 'ses_panel',
+              messageID: id,
+              text: `История ${String(index).padStart(3, '0')}`,
+            },
+          ],
+        };
+      });
+      return send(response, true);
+    }
     if (url.pathname === '/__test/agents') {
       const parent = sessions.find((item) => item.id === 'ses_panel')!;
       const child: Session = {
@@ -265,6 +288,12 @@ const server = createServer((request, response) => {
     if (url.pathname === '/__test/event') {
       const type = String(payload.type);
       const properties = payload.properties as Record<string, unknown>;
+      if (type === 'session.created' || type === 'session.updated') {
+        const info = properties.info as Session;
+        sessions = [...sessions.filter((session) => session.id !== info.id), info];
+      }
+      if (type === 'session.deleted')
+        sessions = sessions.filter((session) => session.id !== (properties.info as Session)?.id);
       if (type === 'message.updated') {
         const info = properties.info as Message;
         const entry = messages[info.sessionID]?.find((item) => item.info.id === info.id);
@@ -389,7 +418,9 @@ const server = createServer((request, response) => {
     if (url.pathname === '/experimental/session')
       return send(
         response,
-        sessions.filter((item) => !item.parentID),
+        sessions.filter(
+          (item) => !item.parentID && (url.searchParams.get('archived') === 'true' || !item.time.archived),
+        ),
       );
     if (url.pathname === '/session/status')
       return send(response, { ses_bcore: { type: 'busy' }, ses_plugins: { type: 'busy' } });
@@ -435,7 +466,8 @@ const server = createServer((request, response) => {
         const target = sessions.find((item) => item.id === id);
         return send(response, target ?? { error: 'Session not found' }, target ? 200 : 404);
       }
-      if (action === 'message') return send(response, messages[id] ?? []);
+      if (action === 'message')
+        return send(response, (messages[id] ?? []).slice(-Number(url.searchParams.get('limit') ?? 100)));
       if (action === 'diff')
         return send(response, [
           {
@@ -523,11 +555,19 @@ const server = createServer((request, response) => {
       }
       if (!action && request.method === 'PATCH') {
         const target = sessions.find((item) => item.id === id)!;
-        Object.assign(target, payload);
+        const updated = merge(target as unknown as Record<string, unknown>, payload) as unknown as Session;
+        Object.assign(target, updated);
         emit('session.updated', { info: target });
         return send(response, target);
       }
     }
+    if (url.pathname === '/find/file')
+      return send(
+        response,
+        ['README.md', 'src/modules/servers/events.ts'].filter((path) =>
+          path.toLowerCase().includes((url.searchParams.get('query') ?? '').toLowerCase()),
+        ),
+      );
     if (url.pathname === '/file')
       return send(response, [
         { name: 'src', path: 'src', absolute: `${directory}/src`, type: 'directory', ignored: false },

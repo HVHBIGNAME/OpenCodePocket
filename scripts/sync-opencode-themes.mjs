@@ -69,12 +69,40 @@ const catalog = themes.map(({ theme }) => ({
   dark: { ...resolveThemeVariant(theme.dark, true), ...resolveThemeVariantV2(theme.dark, true) },
 }));
 const generated = JSON.stringify({ revision, themes: catalog }, null, 2) + '\n';
+const previewKeys = [
+  'background-base',
+  'text-strong',
+  'text-interactive-base',
+  'icon-success-base',
+  'border-base',
+];
+const manifest = {
+  revision,
+  themes: catalog.map(({ id, name, light, dark }) => ({
+    id,
+    name,
+    preview: Object.fromEntries(
+      Object.entries({ light, dark }).map(([mode, tokens]) => [
+        mode,
+        Object.fromEntries(previewKeys.map((key) => [key, tokens[key]])),
+      ]),
+    ),
+  })),
+};
+const assets = new Map([
+  ['src/themes/manifest.json', JSON.stringify(manifest, null, 2) + '\n'],
+  ...catalog.map((theme) => [`src/themes/palettes/${theme.id}.json`, JSON.stringify(theme, null, 2) + '\n']),
+]);
 if (check) {
   if ((await readFile('src/themes/catalog.json', 'utf8')) !== generated)
     throw new Error('Theme catalog differs from the pinned OpenCode sources');
+  for (const [path, text] of assets)
+    if ((await readFile(path, 'utf8')) !== text) throw new Error(`Generated theme asset differs: ${path}`);
 } else {
   await mkdir('src/themes', { recursive: true });
   await writeFile('src/themes/catalog.json', generated);
+  await mkdir('src/themes/palettes', { recursive: true });
+  for (const [path, text] of assets) await writeFile(path, text);
   await writeFile(
     `${vendor}/SOURCE.json`,
     JSON.stringify(
@@ -88,6 +116,6 @@ if (check) {
     ) + '\n',
   );
 }
-console.log(
-  `${check ? 'Verified' : 'Generated'} ${catalog.length} original OpenCode themes, light + dark, using both upstream resolvers (${revision}).`,
+process.stdout.write(
+  `${check ? 'Verified' : 'Generated'} ${catalog.length} original OpenCode themes, light + dark, using both upstream resolvers (${revision}).\n`,
 );

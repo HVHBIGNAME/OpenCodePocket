@@ -7,6 +7,7 @@ import { Welcome } from './pages/Welcome';
 import { SessionsPage } from './components/SessionList';
 import { captureDiagnostic } from './lib/diagnostics';
 import { installKeyboardHandling } from './lib/keyboard';
+import { installGlassHandling } from './lib/glass';
 
 const Chat = lazy(() => import('./pages/Chat').then((module) => ({ default: module.Chat })));
 const Models = lazy(() => import('./pages/Models').then((module) => ({ default: module.Models })));
@@ -38,6 +39,7 @@ export function App() {
     window.scrollTo(0, 0);
   }, [screen, client?.connection.id]);
   useEffect(installKeyboardHandling, []);
+  useEffect(installGlassHandling, []);
   if (!ready)
     return (
       <div className="splash">
@@ -47,11 +49,12 @@ export function App() {
   const chatting = screen === 'chat';
   const home = screen === 'sessions' || screen === 'overview';
   return (
-    <div className={`app-shell ${chatting ? 'app-chat' : ''}`}>
+    <div className={`app-shell ${chatting ? 'app-chat' : ''}`} data-connection-state={status}>
       {!chatting && (
         <header className="app-header">
           <button
             className="connection-switch"
+            data-pocket-glass="connection"
             aria-label={`Подключение: ${client?.connection.name ?? 'добавить компьютер'}`}
             onClick={() => setConnectOpen(true)}
           >
@@ -77,7 +80,7 @@ export function App() {
               <Welcome />
             )
           ) : screen === 'chat' ? (
-            <Chat />
+            <Chat key={client?.connection.id} />
           ) : screen === 'models' ? (
             <Models />
           ) : screen === 'inbox' ? (
@@ -88,7 +91,7 @@ export function App() {
         </Suspense>
       </main>
       {!chatting && (
-        <nav className="mobile-nav" aria-label="Главная навигация">
+        <nav className="mobile-nav" data-pocket-glass="navigation" aria-label="Главная навигация">
           {navigation.map(({ id, name, icon: Icon }) => (
             <button
               key={id}

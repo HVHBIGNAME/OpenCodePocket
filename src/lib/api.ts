@@ -45,7 +45,9 @@ export async function http<T>(
   data?: unknown,
   authorization?: string,
   signal?: AbortSignal,
+  timeoutMs = method === 'GET' ? 30_000 : 120_000,
 ): Promise<T> {
+  signal?.throwIfAborted();
   const headers: Record<string, string> = { Accept: 'application/json' };
   if (authorization) headers.Authorization = authorization;
   if (data !== undefined) headers['Content-Type'] = 'application/json';
@@ -57,27 +59,32 @@ export async function http<T>(
       data,
       responseType: 'text',
       // Capacitor iOS uses connectTimeout as the timeout for the entire URLRequest.
-      connectTimeout: platform === 'ios' ? 120_000 : 15_000,
-      readTimeout: 120_000,
+      connectTimeout: platform === 'ios' ? timeoutMs : Math.min(timeoutMs, 15_000),
+      readTimeout: timeoutMs,
       disableRedirects: true,
     });
     if (signal?.aborted) throw new DOMException('Request cancelled', 'AbortError');
     let payload: unknown = result.data;
+    let invalidJSON = false;
     if (typeof payload === 'string' && payload.length) {
       try {
         payload = JSON.parse(payload);
       } catch {
-        /* HTTP error pages are handled below. */
+        invalidJSON = true;
       }
     }
     if (result.status < 200 || result.status >= 300) throw responseError(result.status, payload);
-    return (result.status === 204 ? undefined : payload) as T;
+    if (invalidJSON && result.status !== 204)
+      throw new ApiError(502, 'Сервер вернул HTML вместо OpenCode API. Проверьте адрес туннеля.');
+    return (result.status === 204 || payload === '' ? undefined : payload) as T;
   }
-  const timeout = AbortSignal.timeout(120_000);
+  const timeout = AbortSignal.timeout(timeoutMs);
   const result = await fetch(url, {
     method,
     headers,
-    body: data === undefined ? undefined : JSON.stringify(data),
+    ...(data !== undefined && !['GET', 'HEAD'].includes(method.toUpperCase())
+      ? { body: JSON.stringify(data) }
+      : {}),
     signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
     redirect: 'error',
     cache: 'no-store',
@@ -120,7 +127,13 @@ export class OpenCodeClient {
 
   request<T>(
     path: string,
-    options: { method?: string; data?: unknown; directory?: string; signal?: AbortSignal } = {},
+    options: {
+      method?: string;
+      data?: unknown;
+      directory?: string;
+      signal?: AbortSignal;
+      timeoutMs?: number;
+    } = {},
   ) {
     return http<T>(
       this.url(path, options.directory),
@@ -128,8 +141,10 @@ export class OpenCodeClient {
       options.data,
       this.authorization,
       options.signal,
+      options.timeoutMs,
     ).catch((error: unknown) => {
-      captureDiagnostic(error, { kind: 'request', operation: diagnosticOperation(path) });
+      if (!options.signal?.aborted)
+        captureDiagnostic(error, { kind: 'request', operation: diagnosticOperation(path) });
       throw error;
     });
   }
@@ -143,12 +158,12 @@ export class OpenCodeClient {
   async health() {
     return z
       .object({ healthy: z.boolean(), version: z.string() })
-      .parse(await this.request('/global/health'));
+      .parse(await this.request('/global/health', { timeoutMs: 10_000 }));
   }
 
   async allSessions(projects: Project[]): Promise<Session[]> {
     try {
-      const sessions = await this.request<Session[]>('/experimental/session?limit=200');
+      const sessions = await this.request<Session[]>('/experimental/session?limit=200&archived=true');
       if (!Array.isArray(sessions)) throw new ApiError(502, 'Некорректный список сессий');
       return sessions;
     } catch (error) {
@@ -214,10 +229,21 @@ export class OpenCodeClient {
     const controller = new AbortController();
     const signal = controller.signal;
     let lastID: string | undefined;
+    let activeAttempt: AbortController | undefined;
+    let wakeRetry: (() => void) | undefined;
+    let lastActivity = 0;
+    const wake = () => {
+      if (signal.aborted || document.hidden) return;
+      wakeRetry?.();
+      if (Date.now() - lastActivity > 20_000) activeAttempt?.abort();
+    };
+    window.addEventListener('online', wake);
+    document.addEventListener('visibilitychange', wake);
     void (async () => {
       let failures = 0;
       while (!signal.aborted) {
         const attempt = new AbortController();
+        activeAttempt = attempt;
         const abort = () => attempt.abort();
         signal.addEventListener('abort', abort, { once: true });
         let watchdog = setTimeout(abort, 45_000);
@@ -233,7 +259,10 @@ export class OpenCodeClient {
             redirect: 'error',
           });
           if (!result.ok || !result.body) throw new ApiError(result.status, 'Поток событий недоступен');
+          if (!result.headers.get('content-type')?.includes('text/event-stream'))
+            throw new ApiError(502, 'Адрес вернул страницу вместо потока событий OpenCode');
           onState('live');
+          lastActivity = Date.now();
           failures = 0;
           const reader = result.body.getReader();
           const parser = new SseDecoder();
@@ -241,6 +270,7 @@ export class OpenCodeClient {
             while (!signal.aborted) {
               const chunk = await reader.read();
               if (chunk.done) break;
+              lastActivity = Date.now();
               clearTimeout(watchdog);
               watchdog = setTimeout(abort, 60_000);
               for (const frame of parser.feed(chunk.value)) {
@@ -266,6 +296,7 @@ export class OpenCodeClient {
           clearTimeout(watchdog);
           signal.removeEventListener('abort', abort);
           attempt.abort();
+          if (activeAttempt === attempt) activeAttempt = undefined;
         }
         if (!signal.aborted) {
           onState('reconnecting');
@@ -275,13 +306,20 @@ export class OpenCodeClient {
               signal.removeEventListener('abort', done);
               resolve();
             };
+            wakeRetry = done;
             const timer = setTimeout(done, Math.min(30_000, 1000 * 2 ** Math.min(failures++, 5)));
             signal.addEventListener('abort', done, { once: true });
           });
+          wakeRetry = undefined;
         }
       }
     })();
-    return async () => controller.abort();
+    return async () => {
+      window.removeEventListener('online', wake);
+      document.removeEventListener('visibilitychange', wake);
+      controller.abort();
+      wakeRetry?.();
+    };
   }
 }
 

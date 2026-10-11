@@ -3,6 +3,13 @@ import { Capacitor, registerPlugin, type PluginListenerHandle } from '@capacitor
 type NativeEvent = { data: string };
 type NativeConnection = { state: 'connected' | 'reconnecting'; message?: string };
 type SpeechEvent = { text?: string; final?: boolean; error?: string };
+export type AppearanceCapabilities = {
+  nativeGlass: boolean;
+  reduceTransparency: boolean;
+  reduceMotion: boolean;
+  lowPower: boolean;
+};
+export type GlassRegion = { id: string; x: number; y: number; width: number; height: number; radius: number };
 
 interface PocketNativePlugin {
   readSecure(options: { key: string }): Promise<{ value?: string }>;
@@ -21,6 +28,13 @@ interface PocketNativePlugin {
   notificationStatus(): Promise<{ status: 'granted' | 'denied' | 'prompt' }>;
   openNotificationSettings(): Promise<void>;
   registerPush(): Promise<{ token: string }>;
+  appearanceCapabilities(): Promise<AppearanceCapabilities>;
+  setGlassAppearance(options: { enabled: boolean; dark: boolean }): Promise<{ enabled: boolean }>;
+  setGlassRegions(options: { viewportWidth: number; regions: GlassRegion[] }): Promise<void>;
+  addListener(
+    name: 'appearanceAccessibility',
+    listener: (event: AppearanceCapabilities) => void,
+  ): Promise<PluginListenerHandle>;
   addListener(name: 'serverEvent', listener: (event: NativeEvent) => void): Promise<PluginListenerHandle>;
   addListener(name: 'connection', listener: (event: NativeConnection) => void): Promise<PluginListenerHandle>;
   addListener(name: 'speech', listener: (event: SpeechEvent) => void): Promise<PluginListenerHandle>;

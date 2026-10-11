@@ -4,7 +4,9 @@ import type { PluginListenerHandle } from '@capacitor/core';
 import { Keyboard } from '@capacitor/keyboard';
 import { usePocket } from '../store/PocketProvider';
 import { errorMessage } from '../lib/api';
-import { isNative, PocketNative, vaultRead, vaultWrite } from '../lib/native';
+import { isNative, PocketNative } from '../lib/native';
+import { useComposerDraft } from '../store/drafts';
+import { captureDiagnostic } from '../lib/diagnostics';
 import type { Command, Session } from '../types';
 import { IconButton } from './ui';
 import { ModelPicker } from './ModelPicker';
@@ -12,13 +14,28 @@ import { SessionOptions } from './SessionOptions';
 import { prepareAttachment, type Attachment } from '../lib/attachments';
 
 export function Composer({ session }: { session: Session }) {
-  const { client, data, model, connectedModels, agent, preferences, perform, notify, loadMessages, haptic } =
-    usePocket();
-  const [draft, setDraft] = useState('');
-  const [draftLoaded, setDraftLoaded] = useState(false);
-  const [attachments, setAttachments] = useState<Attachment[]>([]);
-  const [sending, setSending] = useState(false);
-  const [preparingFiles, setPreparingFiles] = useState(false);
+  const {
+    client,
+    data,
+    drafts,
+    model,
+    connectedModels,
+    agent,
+    preferences,
+    perform,
+    notify,
+    loadMessages,
+    haptic,
+  } = usePocket();
+  const storageKey = `occ.draft.${client?.connection.id ?? 'none'}.${session.id}`;
+  const {
+    text: draft,
+    loaded: draftLoaded,
+    attachments,
+    sending,
+    preparing: preparingFiles,
+  } = useComposerDraft(drafts, storageKey);
+  const setDraft = (text: string) => drafts.update(storageKey, { text });
   const [listening, setListening] = useState(false);
   const [showModels, setShowModels] = useState(false);
   const [showOptions, setShowOptions] = useState(false);
@@ -27,58 +44,51 @@ export function Composer({ session }: { session: Session }) {
   const filesRef = useRef<HTMLInputElement>(null);
   const speech = useRef<PluginListenerHandle | undefined>(undefined);
   const speechBase = useRef('');
-  const currentDraft = useRef('');
-  const draftTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const [stopping, setStopping] = useState(false);
+  const stoppingRef = useRef(false);
   const busy = data.statuses[session.id]?.type === 'busy' || data.statuses[session.id]?.type === 'retry';
-  currentDraft.current = draft;
   const selected = connectedModels.find(
     (item) => item.id === model?.modelID && item.providerID === model?.providerID,
   );
-  const storageKey = `occ.draft.${client?.connection.id ?? 'none'}.${session.id}`;
-
   useEffect(() => {
-    let alive = true;
-    void vaultRead<string>(storageKey)
-      .then((saved) => {
-        if (alive) {
-          setDraft(saved ?? '');
-          setDraftLoaded(true);
-        }
-      })
-      .catch((error: unknown) => notify(errorMessage(error), true));
     return () => {
-      alive = false;
-      clearTimeout(draftTimer.current);
-      void vaultWrite(storageKey, currentDraft.current).catch((error: unknown) =>
-        console.error('Draft save failed', errorMessage(error)),
-      );
       void speech.current?.remove();
       if (isNative)
-        void PocketNative.stopSpeech().catch((error: unknown) => console.debug(errorMessage(error)));
+        void PocketNative.stopSpeech().catch((error: unknown) =>
+          captureDiagnostic(error, { kind: 'action' }),
+        );
     };
-  }, [storageKey, notify]);
+  }, []);
   useEffect(() => {
-    if (!draftLoaded) return;
-    clearTimeout(draftTimer.current);
-    draftTimer.current = setTimeout(() => {
-      void vaultWrite(storageKey, draft).catch((error: unknown) => notify(errorMessage(error), true));
-    }, 450);
     if (inputRef.current) {
       inputRef.current.style.height = 'auto';
       inputRef.current.style.height = `${Math.min(inputRef.current.scrollHeight, 180)}px`;
     }
-  }, [draft, draftLoaded, storageKey, notify]);
+  }, [draft, draftLoaded]);
   useEffect(() => {
     if (!client) return;
+    const controller = new AbortController();
     void client
-      .request<Command[]>('/command', { directory: session.directory })
+      .request<Command[]>('/command', { directory: session.directory, signal: controller.signal })
       .then(setCommands)
-      .catch((error: unknown) => notify(errorMessage(error), true));
+      .catch((error: unknown) => {
+        if (!controller.signal.aborted) notify(errorMessage(error), true);
+      });
+    return () => controller.abort();
   }, [client, session.directory, notify]);
 
   async function send() {
-    if (!client || (!draft.trim() && !attachments.length) || sending || preparingFiles || busy) return;
-    setSending(true);
+    if (
+      !client ||
+      !draftLoaded ||
+      (!draft.trim() && !attachments.length) ||
+      drafts.get(storageKey).sending ||
+      preparingFiles ||
+      busy ||
+      listening
+    )
+      return;
+    drafts.update(storageKey, { sending: true });
     const text = draft.trim();
     const command = text.startsWith('/')
       ? commands.find((item) => text.split(/\s/)[0] === `/${item.name}`)
@@ -86,7 +96,6 @@ export function Composer({ session }: { session: Session }) {
     const success = await perform(async () => {
       await speech.current?.remove();
       speech.current = undefined;
-      if (isNative) await PocketNative.stopSpeech();
       setListening(false);
       const messageID = `msg_${Date.now().toString(16)}${crypto.randomUUID().replaceAll('-', '').slice(0, 16)}`;
       if (command) {
@@ -122,16 +131,17 @@ export function Composer({ session }: { session: Session }) {
       haptic();
     });
     if (success) {
-      setDraft('');
-      setAttachments([]);
-      if (isNative) void Keyboard.hide();
+      drafts.update(storageKey, { text: '', attachments: [] });
+      await drafts.flush(storageKey);
+      if (isNative && inputRef.current)
+        void Keyboard.hide().catch((error: unknown) => notify(errorMessage(error), true));
       try {
         await loadMessages(session);
       } catch (error) {
         notify(`Сообщение отправлено. Не удалось обновить историю: ${errorMessage(error)}`, true);
       }
     }
-    setSending(false);
+    drafts.update(storageKey, { sending: false });
   }
 
   async function startSpeech() {
@@ -163,17 +173,19 @@ export function Composer({ session }: { session: Session }) {
   }
 
   async function addFiles(list: FileList | null) {
-    if (!list) return;
-    setPreparingFiles(true);
+    if (!list || drafts.get(storageKey).preparing || drafts.get(storageKey).sending) return;
+    const files = Array.from(list);
+    drafts.update(storageKey, { preparing: true });
     await perform(async () => {
-      if (attachments.length + list.length > 6) throw new Error('До 6 вложений в одном сообщении.');
+      if (attachments.length + files.length > 6) throw new Error('До 6 вложений в одном сообщении.');
       const added: Attachment[] = [];
-      for (const file of list) added.push(await prepareAttachment(file));
-      const total = [...attachments, ...added].reduce((sum, item) => sum + item.bytes, 0);
+      for (const file of files) added.push(await prepareAttachment(file));
+      const next = [...drafts.get(storageKey).attachments, ...added];
+      const total = next.reduce((sum, item) => sum + item.bytes, 0);
       if (total > 8 * 1024 * 1024) throw new Error('Максимальный размер вложений после обработки — 8 МБ.');
-      setAttachments((old) => [...old, ...added]);
+      drafts.update(storageKey, { attachments: next });
     });
-    setPreparingFiles(false);
+    drafts.update(storageKey, { preparing: false });
     if (filesRef.current) filesRef.current.value = '';
   }
   function keyboard(event: KeyboardEvent<HTMLTextAreaElement>) {
@@ -199,12 +211,8 @@ export function Composer({ session }: { session: Session }) {
           ))}
         </div>
       )}
-      <div className={`composer ${listening ? 'composer-listening' : ''}`}>
-        {preparingFiles && (
-          <div className="form-hint" role="status">
-            Подготовка фото…
-          </div>
-        )}
+      <div data-pocket-glass="composer" className={`composer ${listening ? 'composer-listening' : ''}`}>
+        {preparingFiles && <output className="form-hint">Подготовка вложений…</output>}
         {attachments.length > 0 && (
           <div className="composer-attachments">
             {attachments.map((file, index) => (
@@ -213,7 +221,10 @@ export function Composer({ session }: { session: Session }) {
                 {file.filename}
                 <IconButton
                   label={`Удалить ${file.filename}`}
-                  onClick={() => setAttachments((items) => items.filter((_, i) => i !== index))}
+                  disabled={sending}
+                  onClick={() =>
+                    drafts.update(storageKey, { attachments: attachments.filter((_, i) => i !== index) })
+                  }
                 >
                   <X size={13} />
                 </IconButton>
@@ -263,8 +274,8 @@ export function Composer({ session }: { session: Session }) {
             <IconButton
               label={listening ? 'Завершить диктовку' : 'Надиктовать промпт'}
               className={listening ? 'recording' : ''}
-              disabled={sending}
-              onClick={() => void startSpeech()}
+              disabled={sending || !draftLoaded}
+              onClick={() => void perform(startSpeech)}
             >
               <Mic size={19} />
             </IconButton>
@@ -272,14 +283,22 @@ export function Composer({ session }: { session: Session }) {
               <button
                 className="send-button stop-button"
                 aria-label="Остановить генерацию"
-                onClick={() =>
-                  void perform(() =>
-                    client!.request(`/session/${encodeURIComponent(session.id)}/abort`, {
+                disabled={stopping}
+                onClick={() => {
+                  if (stoppingRef.current || !client) return;
+                  stoppingRef.current = true;
+                  setStopping(true);
+                  void perform(async () => {
+                    await client.request(`/session/${encodeURIComponent(session.id)}/abort`, {
                       method: 'POST',
                       directory: session.directory,
-                    }),
-                  )
-                }
+                    });
+                    await loadMessages(session);
+                  }).finally(() => {
+                    stoppingRef.current = false;
+                    setStopping(false);
+                  });
+                }}
               >
                 <Square size={17} fill="currentColor" />
               </button>
@@ -287,7 +306,13 @@ export function Composer({ session }: { session: Session }) {
               <button
                 className="send-button"
                 aria-label="Отправить промпт"
-                disabled={sending || preparingFiles || listening || (!draft.trim() && !attachments.length)}
+                disabled={
+                  !draftLoaded ||
+                  sending ||
+                  preparingFiles ||
+                  listening ||
+                  (!draft.trim() && !attachments.length)
+                }
                 onClick={() => void send()}
               >
                 {sending ? <span className="send-loading" /> : <ArrowUp size={21} />}

@@ -11,7 +11,7 @@ final class PocketBridgeViewController: CAPBridgeViewController {
         webView?.scrollView.alwaysBounceVertical = false
         webView?.scrollView.keyboardDismissMode = .interactive
     }
-    override var preferredStatusBarStyle: UIStatusBarStyle { .lightContent }
+    override var preferredStatusBarStyle: UIStatusBarStyle { traitCollection.userInterfaceStyle == .dark ? .lightContent : .darkContent }
 }
 
 enum PocketNotificationRouter { static var pendingSessionID: String? }
@@ -31,13 +31,17 @@ public class PocketNativePlugin: CAPPlugin, CAPBridgedPlugin, UNUserNotification
         CAPPluginMethod(name: "requestNotifications", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "notificationStatus", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "openNotificationSettings", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "registerPush", returnType: CAPPluginReturnPromise)
+        CAPPluginMethod(name: "registerPush", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "appearanceCapabilities", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "setGlassAppearance", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "setGlassRegions", returnType: CAPPluginReturnPromise)
     ]
     private var stream: PocketEventStream?
     private var speech: PocketSpeech?
     private var pushCall: CAPPluginCall?
     private var pushTimeout: DispatchWorkItem?
     private var observers: [NSObjectProtocol] = []
+    private var glass: PocketGlassBackground?
 
     public override func load() {
         speech = PocketSpeech { [weak self] event in self?.notifyListeners("speech", data: event) }
@@ -54,9 +58,41 @@ public class PocketNativePlugin: CAPPlugin, CAPBridgedPlugin, UNUserNotification
             self?.pushCall = nil
         })
         observers.append(NotificationCenter.default.addObserver(forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main) { [weak self] _ in self?.stream?.resume() })
+        for name in [UIAccessibility.reduceTransparencyStatusDidChangeNotification, UIAccessibility.reduceMotionStatusDidChangeNotification, Notification.Name.NSProcessInfoPowerStateDidChange] {
+            observers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                self?.notifyListeners("appearanceAccessibility", data: self?.appearanceState() ?? [:])
+            })
+        }
         if let id = PocketNotificationRouter.pendingSessionID {
             notifyListeners("notificationTap", data: ["sessionID": id], retainUntilConsumed: true)
             PocketNotificationRouter.pendingSessionID = nil
+        }
+    }
+
+    private func appearanceState() -> [String: Any] {
+        ["nativeGlass": PocketGlassBackground.supported,
+         "reduceTransparency": UIAccessibility.isReduceTransparencyEnabled,
+         "reduceMotion": UIAccessibility.isReduceMotionEnabled,
+         "lowPower": ProcessInfo.processInfo.isLowPowerModeEnabled]
+    }
+
+    @objc func appearanceCapabilities(_ call: CAPPluginCall) {
+        DispatchQueue.main.async { call.resolve(self.appearanceState()) }
+    }
+
+    @objc func setGlassAppearance(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            guard let webView = self.bridge?.webView else { call.resolve(["enabled": false]); return }
+            if self.glass == nil { self.glass = PocketGlassBackground(frame: webView.frame) }
+            let enabled = self.glass?.configure(webView: webView, enabled: call.getBool("enabled") ?? false, dark: call.getBool("dark") ?? true) ?? false
+            call.resolve(["enabled": enabled])
+        }
+    }
+
+    @objc func setGlassRegions(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            self.glass?.update(regions: call.getArray("regions", JSObject.self) ?? [], viewportWidth: call.getDouble("viewportWidth") ?? 0)
+            call.resolve()
         }
     }
 

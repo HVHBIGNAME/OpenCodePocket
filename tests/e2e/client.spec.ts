@@ -25,6 +25,322 @@ async function tab(page: Page, name: string) {
     .click();
 }
 
+test('keeps a healthy stream quiet without periodic workspace polling', async ({ page }) => {
+  await connect(page);
+  await expect(page.getByRole('button', { name: 'Обновить сессии' })).toBeEnabled();
+  await expect(page.locator('.app-shell')).toHaveAttribute('data-connection-state', 'live');
+  const requests: string[] = [];
+  page.on('request', (request) => {
+    if (/\/api\/(project|provider|session\/status|experimental\/session)(\?|$)/.test(request.url()))
+      requests.push(request.url());
+  });
+  await page.clock.install();
+  await page.clock.runFor(31_000);
+  expect(requests).toEqual([]);
+  await expect(page.getByText('Обновляем…', { exact: true })).toHaveCount(0);
+  await expect(page.locator('.pull-refresh')).toHaveCount(0);
+});
+
+test('hides repeated empty reasoning but shows text when it arrives later', async ({ page }) => {
+  await connect(page);
+  await page.getByRole('button', { name: /Панель управления — новая архитектура/ }).click();
+  await expect(page.getByText('Предлагаемая структура', { exact: true })).toBeVisible();
+  for (let index = 0; index < 5; index++)
+    await page.request.post('http://127.0.0.1:4097/__test/event', {
+      data: {
+        type: 'message.part.updated',
+        properties: {
+          part: {
+            type: 'reasoning',
+            id: `empty_${index}`,
+            messageID: 'msg_answer',
+            sessionID: 'ses_panel',
+            text: '',
+            time: { start: 1, end: 2 },
+          },
+        },
+      },
+    });
+  await expect(page.locator('.reasoning-availability')).toHaveCount(1);
+  await expect(page.locator('.reasoning-block')).toHaveCount(0);
+  await page.request.post('http://127.0.0.1:4097/__test/event', {
+    data: {
+      type: 'message.part.delta',
+      properties: {
+        sessionID: 'ses_panel',
+        messageID: 'msg_answer',
+        partID: 'empty_0',
+        field: 'text',
+        delta: 'Краткое объяснение от провайдера.',
+      },
+    },
+  });
+  await expect(page.locator('.reasoning-block')).toHaveCount(1);
+  await expect(page.locator('.reasoning-block')).toContainText('Краткое объяснение от провайдера.');
+});
+
+test('recovers a dropped event stream and reconciles text without duplicate deltas', async ({ page }) => {
+  await connect(page);
+  await page.getByRole('button', { name: /Панель управления — новая архитектура/ }).click();
+  await expect(page.getByText('Предлагаемая структура', { exact: true })).toBeVisible();
+  await page.request.post('http://127.0.0.1:4097/__test/disconnect');
+  await page.request.post('http://127.0.0.1:4097/__test/event', {
+    data: {
+      type: 'message.part.delta',
+      properties: {
+        sessionID: 'ses_panel',
+        messageID: 'msg_answer',
+        partID: 'prt_end',
+        field: 'text',
+        delta: '\n\nПосле восстановления связи.',
+      },
+    },
+  });
+  await expect(page.locator('.app-shell')).toHaveAttribute('data-connection-state', 'live');
+  await expect(page.locator('.chat-scroll')).toContainText('После восстановления связи.');
+  await expect
+    .poll(
+      async () =>
+        (await page.locator('.chat-scroll').innerText()).split('После восстановления связи.').length - 1,
+    )
+    .toBe(1);
+  await expect(page.getByRole('alert')).toHaveCount(0);
+});
+
+test('opens sessions when a secondary endpoint fails and updates tasks directly from events', async ({
+  page,
+}) => {
+  await page.route('**/api/provider*', (route) =>
+    route.fulfill({ status: 503, json: { error: 'Provider list unavailable' } }),
+  );
+  await connect(page);
+  await expect(page.locator('.app-shell')).toHaveAttribute('data-connection-state', 'live');
+  await page.getByRole('button', { name: /Панель управления — новая архитектура/ }).click();
+  await page.getByRole('button', { name: 'Задачи', exact: true }).click();
+  await expect(page.getByText('Подключить интерфейс управления', { exact: true })).toBeVisible();
+  let fetches = 0;
+  page.on('request', (request) => {
+    if (request.url().includes('/todo?')) fetches++;
+  });
+  await page.request.post('http://127.0.0.1:4097/__test/event', {
+    data: {
+      type: 'todo.updated',
+      properties: {
+        sessionID: 'ses_panel',
+        todos: [{ content: 'Задача обновлена событием', status: 'completed', priority: 'high' }],
+      },
+    },
+  });
+  await expect(page.getByText('Задача обновлена событием', { exact: true })).toBeVisible();
+  expect(fetches).toBe(0);
+  await expect(page.getByText('Подключить интерфейс управления', { exact: true })).toHaveCount(0);
+});
+
+test('preserves project filters and separates archived sessions and subtasks', async ({ page }) => {
+  await connect(page);
+  await page.request.post('http://127.0.0.1:4097/__test/agents');
+  const child = page.locator('.session-row').filter({ hasText: 'Аудит модулей' });
+  await expect(child).toHaveCount(0);
+  await page.getByLabel('С подзадачами', { exact: true }).check();
+  await expect(child).toBeVisible();
+  await page.getByLabel('С подзадачами', { exact: true }).uncheck();
+  await page.getByLabel('Фильтр по проекту').selectOption('C:/coding/emberdeck');
+  await page.getByLabel('Поиск сессий').fill('  архитектура   ПАНЕЛЬ ');
+  await expect(page.locator('.session-row')).toHaveCount(1);
+  await page.locator('.session-row').click();
+  await page.getByRole('button', { name: 'Назад к сессиям', exact: true }).click();
+  await expect(page.getByLabel('Поиск сессий')).toHaveValue('  архитектура   ПАНЕЛЬ ');
+  await expect(page.getByLabel('Фильтр по проекту')).toHaveValue('C:/coding/emberdeck');
+  await page.locator('.session-row').click();
+  await page.getByRole('button', { name: 'Действия с сессией' }).click();
+  await page.getByRole('button', { name: 'Архивировать сессию', exact: true }).click();
+  await expect(page.locator('.session-row')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Архив', exact: true }).click();
+  await expect(page.locator('.session-row')).toHaveCount(1);
+  await page.getByRole('button', { name: 'Обновить сессии' }).click();
+  await page.locator('.session-row').click();
+  await expect(page.getByLabel('Промпт для OpenCode')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Действия с сессией' }).click();
+  await page.getByRole('button', { name: 'Восстановить сессию', exact: true }).click();
+  await expect(page.getByLabel('Промпт для OpenCode')).toBeVisible();
+});
+
+test('retains attachments across tabs and sessions and clears a send completed off-screen', async ({
+  page,
+}) => {
+  await connect(page);
+  await page.getByRole('button', { name: /Панель управления — новая архитектура/ }).click();
+  await page
+    .locator('input[type="file"]')
+    .setInputFiles({ name: 'document.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4\n') });
+  await page.getByLabel('Промпт для OpenCode').fill('Черновик с документом');
+  await page.getByRole('button', { name: 'Задачи', exact: true }).click();
+  await page.getByRole('button', { name: 'Диалог', exact: true }).click();
+  await expect(page.locator('.composer-attachments')).toContainText('document.pdf');
+  await page.getByRole('button', { name: 'Назад к сессиям', exact: true }).click();
+  await page.getByRole('button', { name: /OAuth и управление/ }).click();
+  await expect(page.locator('.composer-attachments')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Назад к сессиям', exact: true }).click();
+  await page.getByRole('button', { name: /Панель управления — новая архитектура/ }).click();
+  await expect(page.getByLabel('Промпт для OpenCode')).toHaveValue('Черновик с документом');
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route('**/prompt_async?*', async (route) => {
+    const response = await route.fetch();
+    await gate;
+    await route.fulfill({ response });
+  });
+  await page.getByRole('button', { name: 'Отправить промпт' }).click();
+  await page.getByRole('button', { name: 'Назад к сессиям', exact: true }).click();
+  release();
+  await page.getByRole('button', { name: /Панель управления — новая архитектура/ }).click();
+  await expect(page.getByLabel('Промпт для OpenCode')).toHaveValue('');
+  await expect(page.locator('.composer-attachments')).toHaveCount(0);
+  const state = await (await page.request.get('http://127.0.0.1:4097/__test/state')).json();
+  expect(state.prompts).toHaveLength(1);
+});
+
+test('searches loaded messages and tool output without changing the draft', async ({ page }, info) => {
+  await connect(page);
+  await page.getByRole('button', { name: /Панель управления — новая архитектура/ }).click();
+  await page.getByLabel('Промпт для OpenCode').fill('Продолжить после поиска');
+  await page.getByRole('button', { name: 'Поиск по диалогу', exact: true }).click();
+  await page.getByLabel('Поиск в загруженной истории').fill('10 passed');
+  await page.getByRole('button', { name: 'Следующее совпадение' }).click();
+  await expect(page.locator('.message-highlighted')).toContainText('10 passed');
+  await expect(page.locator('.message-highlighted .tool-block')).toHaveAttribute('open', '');
+  await expect(page.locator('.chat-search').getByRole('status')).toHaveText('1 / 1');
+  await page.screenshot({ path: info.outputPath('chat-search.png') });
+  await page.getByRole('button', { name: 'Закрыть поиск' }).click();
+  await expect(page.getByLabel('Промпт для OpenCode')).toHaveValue('Продолжить после поиска');
+  await expect(page.locator('.message-highlighted')).toHaveCount(0);
+});
+
+test('does not overwrite a live delta with a delayed history response', async ({ page }) => {
+  await connect(page);
+  await page.getByRole('button', { name: /Панель управления — новая архитектура/ }).click();
+  await expect(page.getByText('Предлагаемая структура', { exact: true })).toBeVisible();
+  let release!: () => void;
+  let snapshotReady!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const ready = new Promise<void>((resolve) => {
+    snapshotReady = resolve;
+  });
+  await page.route(
+    '**/api/session/ses_panel/message?*',
+    async (route) => {
+      const response = await route.fetch();
+      snapshotReady();
+      await gate;
+      await route.fulfill({ response });
+    },
+    { times: 1 },
+  );
+  await page.request.post('http://127.0.0.1:4097/__test/event', {
+    data: { type: 'session.idle', properties: { sessionID: 'ses_panel' } },
+  });
+  await ready;
+  await page.request.post('http://127.0.0.1:4097/__test/event', {
+    data: {
+      type: 'message.part.delta',
+      properties: {
+        sessionID: 'ses_panel',
+        messageID: 'msg_answer',
+        partID: 'prt_end',
+        field: 'text',
+        delta: '\n\nТекст во время загрузки.',
+      },
+    },
+  });
+  await expect(page.locator('.chat-scroll')).toContainText('Текст во время загрузки.');
+  const response = page.waitForResponse((response) =>
+    new URL(response.url()).pathname.endsWith('/ses_panel/message'),
+  );
+  release();
+  await response;
+  await expect(page.locator('.chat-scroll')).toContainText('Текст во время загрузки.');
+});
+
+test('keeps expanded history after resync and preserves the visible message when prepending', async ({
+  page,
+}) => {
+  await connect(page);
+  await page.request.post('http://127.0.0.1:4097/__test/history');
+  await page.getByRole('button', { name: /Панель управления — новая архитектура/ }).click();
+  await expect(page.locator('.message')).toHaveCount(100);
+  const scroller = page.locator('.chat-scroll');
+  await scroller.evaluate((element) => {
+    element.scrollTop = 0;
+    element.dispatchEvent(new Event('scroll'));
+  });
+  const anchor = page.locator('[data-message-id="msg_history_120"]');
+  const top = (await anchor.boundingBox())!.y;
+  await page.getByRole('button', { name: 'Загрузить более ранние сообщения' }).click();
+  await expect(page.locator('.message')).toHaveCount(200);
+  expect(Math.abs((await anchor.boundingBox())!.y - top)).toBeLessThan(4);
+  const response = page.waitForResponse((response) =>
+    new URL(response.url()).pathname.endsWith('/ses_panel/message'),
+  );
+  await page.request.post('http://127.0.0.1:4097/__test/event', {
+    data: { type: 'session.idle', properties: { sessionID: 'ses_panel' } },
+  });
+  expect(new URL((await response).url()).searchParams.get('limit')).toBe('200');
+  await expect(page.locator('.message')).toHaveCount(200);
+  await scroller.evaluate((element) => {
+    element.scrollTop = 0;
+    element.dispatchEvent(new Event('scroll'));
+  });
+  await page.getByRole('button', { name: 'Загрузить более ранние сообщения' }).click();
+  await expect(page.locator('.message')).toHaveCount(220);
+  await expect(page.getByRole('button', { name: 'Загрузить более ранние сообщения' })).toHaveCount(0);
+});
+
+test('searches files remotely and cancels a file read when navigating back', async ({ page }) => {
+  await connect(page);
+  await page.getByRole('button', { name: /Панель управления — новая архитектура/ }).click();
+  await page.getByRole('button', { name: 'Файлы', exact: true }).click();
+  await page.getByLabel('Поиск файлов в проекте').fill('events');
+  await expect(page.locator('.file-list')).toContainText('src/modules/servers/events.ts');
+  await page.getByLabel('Поиск файлов в проекте').fill('not-a-file');
+  await expect(page.getByRole('heading', { name: 'Файлы не найдены' })).toBeVisible();
+  await page.getByLabel('Поиск файлов в проекте').fill('README');
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route('**/api/file/content?*', async (route) => {
+    await gate;
+    await route.fulfill({ json: { type: 'text', content: 'STALE FILE CONTENT' } });
+  });
+  await page
+    .locator('.file-list')
+    .getByRole('button', { name: /README/ })
+    .click();
+  await page.getByRole('button', { name: 'Назад', exact: true }).click();
+  release();
+  await expect(page.getByLabel('Поиск файлов в проекте')).toHaveValue('README');
+  await expect(page.locator('.file-list')).toContainText('README.md');
+  await expect(page.getByText('STALE FILE CONTENT', { exact: true })).toHaveCount(0);
+});
+
+test('filters requests without losing an answer in progress', async ({ page }) => {
+  await connect(page);
+  await tab(page, 'Запросы');
+  await page.getByRole('radio', { name: /Redis/ }).check();
+  await page.getByRole('button', { name: 'Доступ', exact: true }).click();
+  await expect(page.getByRole('radio', { name: /Redis/ })).not.toBeVisible();
+  await page.getByRole('button', { name: 'Вопросы', exact: true }).click();
+  await expect(page.getByRole('radio', { name: /Redis/ })).toBeChecked();
+  await page.getByLabel('Поиск запросов').fill('does not exist');
+  await expect(page.getByRole('heading', { name: 'Запросы не найдены' })).toBeVisible();
+  await page.getByRole('button', { name: 'Сбросить фильтры' }).click();
+  await expect(page.getByRole('radio', { name: /Redis/ })).toBeChecked();
+});
+
 test('opens task sessions, reads agent messages and returns to the parent with its draft', async ({
   page,
 }, testInfo) => {

@@ -32,18 +32,18 @@
 
 ## Установка
 
-**Android:** [скачать подписанный APK](https://github.com/HVHBIGNAME/OpenCodePocket/releases/download/v1.0.1/OpenCodePocket-1.0.1-android.apk). APK подписан постоянным ключом проекта. Android 8+.
+**Android:** [скачать подписанный APK](https://github.com/HVHBIGNAME/OpenCodePocket/releases/download/v1.0.3/OpenCodePocket-1.0.3-android.apk). APK подписан постоянным ключом проекта. Android 8+.
 
-**iOS:** [скачать IPA](https://github.com/HVHBIGNAME/OpenCodePocket/releases/download/v1.0.1/OpenCodePocket-1.0.1-ios-unsigned.ipa). Это скомпилированный arm64 IPA для iOS 15+, **без Apple-подписи**. Для установки нужна самостоятельная подпись через Sideloadly/AltStore или свою Apple Developer-команду. Фоновый APNs требует подходящих entitlements и provisioning profile. [Подробнее](docs/build.md#ios).
+**iOS:** [скачать IPA](https://github.com/HVHBIGNAME/OpenCodePocket/releases/download/v1.0.3/OpenCodePocket-1.0.3-ios-unsigned.ipa). Это скомпилированный arm64 IPA для iOS 15+, **без Apple-подписи**. Для установки нужна самостоятельная подпись через Sideloadly/AltStore или свою Apple Developer-команду. Фоновый APNs требует подходящих entitlements и provisioning profile. [Подробнее](docs/build.md#ios).
 
 ### Компьютер → телефон
 
-**Windows:** [скачай `Install-Pocket.cmd`](https://github.com/HVHBIGNAME/OpenCodePocket/releases/download/v1.0.1/Install-Pocket.cmd) и запусти двойным щелчком. Установщик сам скачает Node.js, если его нет, и `cloudflared`, проверит контрольные суммы и подключит плагин.
+**Windows:** [скачай `Install-Pocket.cmd`](https://github.com/HVHBIGNAME/OpenCodePocket/releases/download/v1.0.3/Install-Pocket.cmd) и запусти двойным щелчком. Установщик сам скачает Node.js, если его нет, и `cloudflared`, проверит контрольные суммы и подключит плагин.
 
 **macOS / Linux:**
 
 ```sh
-curl -fsSL https://github.com/HVHBIGNAME/OpenCodePocket/releases/download/v1.0.1/install-pocket.sh | sh
+curl -fsSL https://github.com/HVHBIGNAME/OpenCodePocket/releases/download/v1.0.3/install-pocket.sh | sh
 ```
 
 1. После установки плагина **перезапусти OpenCode**. HTTP-порт настраивается автоматически, существующий порт сохраняется.
@@ -55,7 +55,7 @@ curl -fsSL https://github.com/HVHBIGNAME/OpenCodePocket/releases/download/v1.0.1
 Если Node.js уже установлен, доступна одна команда:
 
 ```sh
-npx --yes --package=https://github.com/HVHBIGNAME/OpenCodePocket/releases/download/v1.0.1/hvhbigname-occ-bridge-1.0.1.tgz occ-pocket install
+npx --yes --package=https://github.com/HVHBIGNAME/OpenCodePocket/releases/download/v1.0.3/hvhbigname-occ-bridge-1.0.3.tgz occ-pocket install
 ```
 
 Если OpenCode уже слушает порт, можно подключить мост без перезапуска:
@@ -69,6 +69,16 @@ occ-pocket start --upstream http://127.0.0.1:4096 --tunnel
 Свой туннель: `--url https://your-tunnel.example` вместо `--tunnel`. Локальная сеть/VPN: `--lan`. [Все сценарии →](docs/connect.md)
 
 ## Интерфейс
+
+### В версии 1.0.3
+
+- Сессии сгруппированы по проектам: фильтр папки, поиск по нескольким словам, отдельный показ подзадач и архив с восстановлением. Поиск и фильтры сохраняются при возврате из диалога.
+- В чате доступен поиск по загруженным сообщениям, рассуждениям и выводу инструментов. Более ранняя история догружается без скачка позиции чтения.
+- Во вкладке «Файлы» — поиск по всему проекту; в «Изменениях» и «Задачах» — фильтрация текущего списка.
+- «Запросы» разделены на вопросы и доступ, с поиском по содержимому и сессии. Фильтрация не сбрасывает выбранные ответы.
+- Текст и вложения переживают переходы между экранами; вложения сохраняются в памяти до завершения процесса приложения. Подробные проверки и ограничения — в [отчёте](docs/verification.md).
+- Убраны регулярный опрос сессий и автоматическая надпись «Обновляем…». Сообщения, статусы, задачи и патчи обновляются событиями; снимки загружаются при открытии раздела, восстановлении связи и вручную.
+- **Liquid Glass на iPhone:** Настройки → Оформление → Тема. Системный `UIGlassEffect` на панелях iOS 26+, CSS-оформление на более ранних iOS. Уменьшение прозрачности и энергосбережение отключают тяжёлые эффекты. 37 оригинальных тем доступны на обеих платформах и загружаются по одной.
 
 Сессии, диалог и запросы — тема **Mercury, тёмная**:
 

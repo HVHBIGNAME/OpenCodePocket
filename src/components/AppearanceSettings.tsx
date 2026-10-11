@@ -1,12 +1,19 @@
 import { useState, type CSSProperties } from 'react';
-import { Check, ChevronRight, Monitor, Moon, Palette, Search, Sun } from 'lucide-react';
-import { themes, useAppearance, setAppearance, type Theme, type ColorMode } from '../lib/appearance';
+import { Check, ChevronRight, LoaderCircle, Monitor, Moon, Palette, Search, Sun } from 'lucide-react';
+import {
+  availableThemes,
+  themes,
+  useAppearance,
+  setAppearance,
+  type Theme,
+  type ColorMode,
+} from '../lib/appearance';
 import { usePocket } from '../store/PocketProvider';
-import { Button, Modal } from './ui';
+import { Button, Modal, Toggle } from './ui';
 import './appearance.css';
 
 function Swatch({ theme, mode }: { theme: Theme; mode: ColorMode }) {
-  const tokens = theme[mode];
+  const tokens = theme.preview[mode];
   return (
     <span
       className="theme-swatch"
@@ -33,8 +40,8 @@ export function AppearanceSettings() {
   const { perform } = usePocket();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
-  const selected = themes.find((theme) => theme.id === appearance.theme)!;
-  const matches = themes.filter((theme) =>
+  const selected = availableThemes.find((theme) => theme.id === appearance.theme)!;
+  const matches = availableThemes.filter((theme) =>
     `${theme.name} ${theme.id}`.toLowerCase().includes(query.toLowerCase()),
   );
   const change = (patch: Parameters<typeof setAppearance>[0]) =>
@@ -45,10 +52,13 @@ export function AppearanceSettings() {
         <Palette size={20} />
         <div>
           <h2>Оформление</h2>
-          <p>Все {themes.length} тем OpenCode с оригинальными цветами.</p>
+          <p>
+            {themes.length} тем OpenCode
+            {availableThemes.length > themes.length ? ' + Liquid Glass для iPhone' : ''}.
+          </p>
         </div>
       </div>
-      <div className="segmented appearance-modes" role="group" aria-label="Цветовой режим">
+      <fieldset className="segmented appearance-modes" aria-label="Цветовой режим">
         {(
           [
             ['light', 'Светлая', Sun],
@@ -66,7 +76,7 @@ export function AppearanceSettings() {
             {name}
           </button>
         ))}
-      </div>
+      </fieldset>
       <button
         className="settings-link-row theme-current"
         aria-label={`Тема: ${selected.name}`}
@@ -78,14 +88,27 @@ export function AppearanceSettings() {
         <Swatch theme={selected} mode={appearance.mode} />
         <span>
           <strong>{selected.name}</strong>
-          <small>Выбрать тему OpenCode</small>
+          <small>{appearance.pending ? 'Применяем тему…' : 'Выбрать оформление'}</small>
         </span>
         <ChevronRight size={18} />
       </button>
+      {selected.exclusive === 'iphone' && (
+        <>
+          <p className="form-hint glass-description">
+            Системное стекло панелей на iOS 26+. На ранних iOS и в браузере — прозрачное оформление WebView.
+          </p>
+          <Toggle
+            checked={Boolean(appearance.reduceTransparency)}
+            onChange={(reduceTransparency) => change({ reduceTransparency })}
+            label="Уменьшить прозрачность"
+            description="Плотные поверхности и повышенная читаемость. Системные настройки доступности учитываются автоматически."
+          />
+        </>
+      )}
       {open && (
         <Modal
-          title="Темы OpenCode"
-          subtitle={`${themes.length} тем · оригинальные светлые и тёмные палитры`}
+          title="Темы оформления"
+          subtitle={`${themes.length} оригинальных тем OpenCode${availableThemes.length > themes.length ? ' · эксклюзив iPhone' : ''}`}
           onClose={() => setOpen(false)}
         >
           <label className="search-field">
@@ -97,7 +120,7 @@ export function AppearanceSettings() {
               onChange={(event) => setQuery(event.target.value)}
             />
           </label>
-          <div className="theme-catalog" role="group" aria-label="Каталог тем">
+          <fieldset className="theme-catalog" aria-label="Каталог тем">
             {matches.map((theme) => (
               <button
                 key={theme.id}
@@ -107,11 +130,18 @@ export function AppearanceSettings() {
                 onClick={() => change({ theme: theme.id })}
               >
                 <Swatch theme={theme} mode={appearance.mode} />
-                <span>{theme.name}</span>
-                {theme.id === appearance.theme && <Check size={18} />}
+                <span>
+                  {theme.name}
+                  {theme.exclusive && <small className="theme-exclusive">iPhone</small>}
+                </span>
+                {theme.id === appearance.pending ? (
+                  <LoaderCircle size={18} className="spin" />
+                ) : (
+                  theme.id === appearance.theme && <Check size={18} />
+                )}
               </button>
             ))}
-          </div>
+          </fieldset>
           {!matches.length && <p className="form-hint">Темы с таким названием нет.</p>}
           <Button className="theme-done" onClick={() => setOpen(false)}>
             Готово

@@ -1,4 +1,5 @@
 import Foundation
+import Network
 
 final class PocketEventStream: NSObject, URLSessionDataDelegate {
     private let address: URL
@@ -15,6 +16,10 @@ final class PocketEventStream: NSObject, URLSessionDataDelegate {
     private var retry: DispatchWorkItem?
     private var failures = 0
     private var stopped = false
+    private var connected = false
+    private var lastActivity = Date.distantPast
+    private let network = NWPathMonitor()
+    private var networkPath: String?
 
     init(url: URL, authorization: String, onEvent: @escaping (String) -> Void, onState: @escaping (Bool) -> Void) {
         self.address = url
@@ -26,11 +31,32 @@ final class PocketEventStream: NSObject, URLSessionDataDelegate {
         config.timeoutIntervalForRequest = 65
         config.timeoutIntervalForResource = 86400
         config.requestCachePolicy = .reloadIgnoringLocalCacheData
+        config.waitsForConnectivity = true
         session = URLSession(configuration: config, delegate: self, delegateQueue: .main)
+        network.pathUpdateHandler = { [weak self] path in
+            let available = path.status == .satisfied
+            let signature = "\(available):\(path.usesInterfaceType(.wifi)):\(path.usesInterfaceType(.cellular)):\(path.usesInterfaceType(.wiredEthernet))"
+            DispatchQueue.main.async {
+                guard let self = self, !self.stopped else { return }
+                let previous = self.networkPath
+                self.networkPath = signature
+                if !available {
+                    self.retry?.cancel()
+                    let old = self.task
+                    self.task = nil
+                    old?.cancel()
+                    self.connected = false
+                    self.onState(false)
+                } else if previous != nil && previous != signature {
+                    self.resume(force: true)
+                }
+            }
+        }
+        network.start(queue: DispatchQueue(label: "occ.network"))
     }
 
     func start() {
-        guard !stopped else { return }
+        guard !stopped, task == nil else { return }
         var request = URLRequest(url: address)
         request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
         request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
@@ -43,8 +69,12 @@ final class PocketEventStream: NSObject, URLSessionDataDelegate {
         task?.resume()
     }
 
-    func resume() {
+    func resume(force: Bool = false) {
         guard !stopped else { return }
+        if !force, task != nil, connected, Date().timeIntervalSince(lastActivity) < 25 {
+            onState(true)
+            return
+        }
         retry?.cancel()
         let old = task
         task = nil
@@ -55,6 +85,7 @@ final class PocketEventStream: NSObject, URLSessionDataDelegate {
 
     func stop() {
         stopped = true
+        network.cancel()
         retry?.cancel()
         task?.cancel()
         session?.invalidateAndCancel()
@@ -66,20 +97,29 @@ final class PocketEventStream: NSObject, URLSessionDataDelegate {
         guard !stopped, dataTask == task else { completionHandler(.cancel); return }
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
             if (response as? HTTPURLResponse)?.statusCode == 401 {
+                onState(false)
                 onEvent("{\"type\":\"occ.unauthorized\",\"properties\":{}}")
-                stopped = true
+                stop()
             }
             onState(false)
             completionHandler(.cancel)
             return
         }
+        guard (response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Type")?.lowercased().contains("text/event-stream") == true else {
+            onState(false)
+            completionHandler(.cancel)
+            return
+        }
         failures = 0
+        connected = true
+        lastActivity = Date()
         onState(true)
         completionHandler(.allow)
     }
 
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
         guard !stopped, dataTask == task else { return }
+        lastActivity = Date()
         buffer.append(data)
         if buffer.count > 8 * 1024 * 1024 { dataTask.cancel(); return }
         while let newline = buffer.firstIndex(of: 10) {
@@ -110,12 +150,20 @@ final class PocketEventStream: NSObject, URLSessionDataDelegate {
 
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
         guard !stopped, task == self.task else { return }
+        self.task = nil
+        connected = false
         onState(false)
         let delay = min(30.0, pow(2.0, Double(min(failures, 5))))
         failures += 1
         let work = DispatchWorkItem { [weak self] in self?.start() }
         retry = work
         DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+    }
+
+    func urlSession(_ session: URLSession, taskIsWaitingForConnectivity task: URLSessionTask) {
+        guard !stopped, task == self.task else { return }
+        connected = false
+        onState(false)
     }
 
     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {

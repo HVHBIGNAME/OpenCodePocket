@@ -8,11 +8,12 @@ import '@fontsource/ibm-plex-mono/500.css';
 import { App, ErrorBoundary } from './App';
 import { PocketProvider } from './store/PocketProvider';
 import './styles.css';
+import './themes/liquid-glass.css';
 import { installDiagnosticHandlers } from './lib/diagnostics';
 import { initializeAppearance } from './lib/appearance';
 
-initializeAppearance();
 installDiagnosticHandlers();
+await initializeAppearance();
 createRoot(document.getElementById('root')!).render(
   <ErrorBoundary>
     <PocketProvider>

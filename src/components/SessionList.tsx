@@ -1,11 +1,10 @@
-import { useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import {
   ArrowRight,
   Check,
   ChevronRight,
   Folder,
   GitBranch,
-  LoaderCircle,
   MessageSquare,
   Plus,
   RefreshCw,
@@ -17,6 +16,7 @@ import { usePocket } from '../store/PocketProvider';
 import { folderName, timeAgo } from '../lib/format';
 import { Button, EmptyState, IconButton, Modal } from './ui';
 import type { Session } from '../types';
+import { defaultSessionFilters, filterSessions, groupSessions, matchesSearch } from '../lib/session-search';
 
 export function SessionRow({ session }: { session: Session }) {
   const { data, openSession } = usePocket();
@@ -49,7 +49,15 @@ export function SessionRow({ session }: { session: Session }) {
             ) : (
               <Check size={12} />
             )}{' '}
-            {waiting ? 'Ждёт тебя' : status === 'retry' ? 'Повтор запроса' : busy ? 'Работает' : 'Готово'}
+            {session.time.archived
+              ? 'В архиве'
+              : waiting
+                ? 'Ждёт тебя'
+                : status === 'retry'
+                  ? 'Повтор запроса'
+                  : busy
+                    ? 'Работает'
+                    : 'Готово'}
           </span>
           {session.summary && (
             <span className="diff-summary">
@@ -79,6 +87,7 @@ export function NewSession({ onClose }: { onClose: () => void }) {
   const [title, setTitle] = useState('');
   const [directory, setDirectory] = useState(folders[0] ?? '');
   const [other, setOther] = useState(!folders.length);
+  const [search, setSearch] = useState('');
   const [busy, setBusy] = useState(false);
   return (
     <Modal title="Новая сессия" subtitle="Выбери проект, с которым будем работать." onClose={onClose}>
@@ -94,22 +103,38 @@ export function NewSession({ onClose }: { onClose: () => void }) {
         }}
       >
         {!other && (
+          <label className="search-field">
+            <Search size={18} />
+            <input
+              aria-label="Поиск проектов"
+              placeholder="Найти папку проекта"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+            />
+          </label>
+        )}
+        {!other && (
           <div className="project-picker">
-            {folders.slice(0, 5).map((folder) => (
-              <button
-                type="button"
-                className={`option-row ${folder === directory ? 'selected' : ''}`}
-                key={folder}
-                onClick={() => setDirectory(folder)}
-              >
-                <Folder size={21} />
-                <span>
-                  <strong>{folderName(folder)}</strong>
-                  <small>{folder}</small>
-                </span>
-                {folder === directory && <Check size={20} />}
-              </button>
-            ))}
+            {folders
+              .filter((folder) => matchesSearch(folder, search))
+              .map((folder) => (
+                <button
+                  type="button"
+                  className={`option-row ${folder === directory ? 'selected' : ''}`}
+                  key={folder}
+                  onClick={() => setDirectory(folder)}
+                >
+                  <Folder size={21} />
+                  <span>
+                    <strong>{folderName(folder)}</strong>
+                    <small>{folder}</small>
+                  </span>
+                  {folder === directory && <Check size={20} />}
+                </button>
+              ))}
+            {!folders.some((folder) => matchesSearch(folder, search)) && (
+              <p className="form-hint">Проект не найден. Можно указать папку вручную.</p>
+            )}
           </div>
         )}
         <button type="button" className="text-action" onClick={() => setOther(!other)}>
@@ -145,29 +170,34 @@ export function NewSession({ onClose }: { onClose: () => void }) {
 }
 
 export function SessionsPage() {
-  const { data, refresh, perform, refreshing, status } = usePocket();
-  const [search, setSearch] = useState('');
-  const [filter, setFilter] = useState('all');
+  const { data, refresh, perform, refreshing, status, sessionFilters, setSessionFilters } = usePocket();
+  const { search, filter, project, children } = sessionFilters;
+  const [visibleCount, setVisibleCount] = useState(60);
   const [newOpen, setNewOpen] = useState(false);
   const [pull, setPull] = useState(0);
   const pullStart = useRef<number | undefined>(undefined);
-  const waiting = new Set([...data.questions, ...data.permissions].map((item) => item.sessionID));
-  const sessions = data.sessions
-    .filter((item) => !item.time.archived)
-    .filter((item) => `${item.title} ${item.directory}`.toLowerCase().includes(search.toLowerCase()))
-    .filter(
-      (item) =>
-        filter === 'all' ||
-        (filter === 'busy'
-          ? ['busy', 'retry'].includes(data.statuses[item.id]?.type ?? '')
-          : waiting.has(item.id)),
-    )
-    .sort((a, b) => b.time.updated - a.time.updated);
+  const { sessions: allSessions, statuses, questions, permissions } = data;
+  const sessions = useMemo(
+    () => filterSessions({ sessions: allSessions, statuses, questions, permissions }, sessionFilters),
+    [allSessions, statuses, questions, permissions, sessionFilters],
+  );
+  const groups = groupSessions(sessions.slice(0, visibleCount));
+  const folders = useMemo(
+    () => [...new Set(data.sessions.map((item) => item.directory))].sort(),
+    [data.sessions],
+  );
+  const updateFilters = (patch: Partial<typeof sessionFilters>) => {
+    setSessionFilters((previous) => ({ ...previous, ...patch }));
+    setVisibleCount(60);
+  };
   return (
     <div
       className="page sessions-page"
       onTouchStart={(event) => {
-        pullStart.current = window.scrollY <= 0 ? event.touches[0]?.clientY : undefined;
+        const control =
+          event.target instanceof Element && event.target.closest('input, button, select, label');
+        pullStart.current =
+          !control && !refreshing && window.scrollY <= 0 ? event.touches[0]?.clientY : undefined;
       }}
       onTouchMove={(event) => {
         if (pullStart.current !== undefined)
@@ -178,11 +208,15 @@ export function SessionsPage() {
         setPull(0);
         pullStart.current = undefined;
       }}
+      onTouchCancel={() => {
+        setPull(0);
+        pullStart.current = undefined;
+      }}
     >
       <div className="page-heading">
         <div>
           <h1>
-            Сессии<span className="heading-count">{data.sessions.length}</span>
+            Сессии<span className="heading-count">{sessions.length}</span>
           </h1>
           {status !== 'live' && <p>Восстановление соединения…</p>}
         </div>
@@ -191,13 +225,12 @@ export function SessionsPage() {
           disabled={refreshing}
           onClick={() => void perform(() => refresh())}
         >
-          <RefreshCw size={21} className={refreshing ? 'spin' : ''} />
+          <RefreshCw size={21} />
         </IconButton>
       </div>
-      {(pull > 25 || refreshing) && (
+      {pull > 25 && (
         <div className="pull-refresh">
-          <LoaderCircle size={18} className="spin" />
-          {refreshing ? 'Обновляем…' : pull > 65 ? 'Отпусти, чтобы обновить' : 'Потяни ещё немного'}
+          {pull > 65 ? 'Отпустите для обновления' : 'Потяните для обновления'}
         </div>
       )}
       <label className="search-field">
@@ -206,33 +239,69 @@ export function SessionsPage() {
           aria-label="Поиск сессий"
           placeholder="Найти сессию или проект"
           value={search}
-          onChange={(event) => setSearch(event.target.value)}
+          onChange={(event) => updateFilters({ search: event.target.value })}
         />
         {search && (
-          <button aria-label="Очистить поиск" onClick={() => setSearch('')}>
+          <button aria-label="Очистить поиск" onClick={() => updateFilters({ search: '' })}>
             ×
           </button>
         )}
       </label>
       <div className="segmented session-filters">
-        {[
-          ['all', 'Все'],
-          ['busy', 'В работе'],
-          ['waiting', 'Ждут ответа'],
-        ].map(([value, label]) => (
+        {(
+          [
+            ['all', 'Все'],
+            ['busy', 'В работе'],
+            ['waiting', 'Ждут ответа'],
+            ['archived', 'Архив'],
+          ] as const
+        ).map(([value, label]) => (
           <button
             key={value}
             aria-pressed={filter === value}
             className={filter === value ? 'active' : ''}
-            onClick={() => setFilter(value!)}
+            onClick={() => updateFilters({ filter: value })}
           >
             {label}
           </button>
         ))}
       </div>
+      <div className="session-scope">
+        <select
+          aria-label="Фильтр по проекту"
+          value={project}
+          onChange={(event) => updateFilters({ project: event.target.value })}
+        >
+          <option value="">Все проекты</option>
+          {folders.map((folder) => (
+            <option key={folder} value={folder}>
+              {folder}
+            </option>
+          ))}
+        </select>
+        <label className="subtask-filter">
+          <input
+            type="checkbox"
+            checked={children}
+            onChange={(event) => updateFilters({ children: event.target.checked })}
+          />
+          С подзадачами
+        </label>
+      </div>
       <section className="session-feed" aria-label="Список сессий">
         {sessions.length ? (
-          sessions.map((session) => <SessionRow key={session.id} session={session} />)
+          groups.map(([directory, items]) => (
+            <section className="session-group" key={directory} aria-label={`Проект ${directory}`}>
+              <h2 title={directory}>
+                <Folder size={16} />
+                {folderName(directory)}
+                <small>{items.length}</small>
+              </h2>
+              {items.map((session) => (
+                <SessionRow key={session.id} session={session} />
+              ))}
+            </section>
+          ))
         ) : (
           <EmptyState
             icon={<Terminal size={29} />}
@@ -244,11 +313,14 @@ export function SessionsPage() {
                   : 'Нет сессий'
             }
             action={
-              !search &&
-              filter === 'all' && (
+              !search && !project && filter === 'all' ? (
                 <Button onClick={() => setNewOpen(true)}>
                   Создать сессию
                   <Plus size={19} />
+                </Button>
+              ) : (
+                <Button variant="secondary" onClick={() => updateFilters(defaultSessionFilters)}>
+                  Сбросить фильтры
                 </Button>
               )
             }
@@ -259,6 +331,15 @@ export function SessionsPage() {
           </EmptyState>
         )}
       </section>
+      {sessions.length > visibleCount && (
+        <Button
+          variant="secondary"
+          className="more-sessions"
+          onClick={() => setVisibleCount((count) => count + 60)}
+        >
+          Показать ещё · {sessions.length - visibleCount}
+        </Button>
+      )}
       <button className="new-session-fab" aria-label="Новая сессия" onClick={() => setNewOpen(true)}>
         <Plus size={22} />
         <span>Новая</span>
