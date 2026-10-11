@@ -60,4 +60,9 @@ describe('history snapshot reconciliation', () => {
       added,
     ]);
   });
+  it('keeps fetched parts when only a new message header arrived over SSE', () => {
+    const snapshot = [message('a', 1, 'Snapshot text')];
+    const header = { ...snapshot[0]!, parts: [] };
+    expect(mergeHistory(snapshot, [], [header])[0]!.parts).toEqual(snapshot[0]!.parts);
+  });
 });

@@ -52,6 +52,22 @@ export function groupSessions(sessions: Session[]) {
   return [...groups.entries()];
 }
 
+export function stableSessionOrder(sessions: Session[], previous: string[]): Session[] {
+  const remaining = new Map(sessions.map((session) => [session.id, session]));
+  const ordered: Session[] = [];
+  for (const id of previous) {
+    const session = remaining.get(id);
+    if (session) {
+      ordered.push(session);
+      remaining.delete(id);
+    }
+  }
+  return [
+    ...ordered,
+    ...[...remaining.values()].sort((a, b) => b.time.updated - a.time.updated || a.id.localeCompare(b.id)),
+  ];
+}
+
 export function messageSearchText(entry: MessageEntry) {
   return entry.parts
     .flatMap((part) => {

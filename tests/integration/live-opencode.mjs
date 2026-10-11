@@ -46,17 +46,22 @@ const installer = spawnSync(
 );
 if (installer.status !== 0) throw new Error(installer.stderr || 'Plugin installer failed');
 const logs = [];
-const child = spawn(
-  executable,
-  ['--print-logs', '--log-level', 'DEBUG', 'serve', '--hostname', '127.0.0.1', '--port', '4098'],
-  { cwd: project, env, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] },
-);
-child.stdout.on('data', (chunk) => logs.push(chunk.toString()));
-child.stderr.on('data', (chunk) => logs.push(chunk.toString()));
+function startServer(port) {
+  const process = spawn(
+    executable,
+    ['--print-logs', '--log-level', 'DEBUG', 'serve', '--hostname', '127.0.0.1', '--port', String(port)],
+    { cwd: project, env, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] },
+  );
+  process.stdout.on('data', (chunk) => logs.push(chunk.toString()));
+  process.stderr.on('data', (chunk) => logs.push(chunk.toString()));
+  return process;
+}
+let child = startServer(4098);
+let serverUrl = 'http://127.0.0.1:4098';
 const auth = `Basic ${Buffer.from(`opencode:${password}`).toString('base64')}`;
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 async function request(path, options = {}, bridge = false) {
-  const response = await fetch(`${bridge ? 'http://127.0.0.1:4145' : 'http://127.0.0.1:4098'}${path}`, {
+  const response = await fetch(`${bridge ? 'http://127.0.0.1:4145' : serverUrl}${path}`, {
     ...options,
     headers: { 'Content-Type': 'application/json', Authorization: auth, ...options.headers },
     signal: AbortSignal.timeout(90000),
@@ -66,6 +71,59 @@ async function request(path, options = {}, bridge = false) {
   if (!response.ok)
     throw new Error(`${path}: HTTP ${response.status} ${(await response.text()).slice(0, 400)}`);
   return response.status === 204 ? undefined : response.json();
+}
+async function checkManualHandoff() {
+  const parent = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
+    stdio: 'ignore',
+    windowsHide: true,
+  });
+  const manual = spawn(
+    process.execPath,
+    [
+      'packages/bridge/dist/cli.js',
+      'start',
+      '--port',
+      '4146',
+      '--url',
+      'http://127.0.0.1:4146',
+      '--upstream',
+      serverUrl,
+      '--parent-pid',
+      String(parent.pid),
+    ],
+    {
+      env: { ...env, OCC_STATE_DIR: join(root, 'manual') },
+      windowsHide: true,
+      stdio: 'ignore',
+    },
+  );
+  try {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        assert((await fetch('http://127.0.0.1:4146/healthz')).ok);
+        break;
+      } catch (error) {
+        if (attempt >= 30 || manual.exitCode !== null) throw error;
+        await wait(200);
+      }
+    }
+    const exit = new Promise((resolve, reject) => {
+      const timer = setTimeout(
+        () => reject(new Error('Manual companion did not stop with its parent')),
+        5000,
+      );
+      manual.once('exit', (code) => {
+        clearTimeout(timer);
+        resolve(code);
+      });
+    });
+    parent.kill();
+    assert.equal(await exit, 0);
+    console.log('PASS manually launched companion releases its port when its parent exits');
+  } finally {
+    parent.kill();
+    manual.kill();
+  }
 }
 try {
   let health;
@@ -91,7 +149,19 @@ try {
       commands.some((command) => command.name === name),
       `Missing command ${name}`,
     );
+  assert(commands.find((command) => command.name === 'pocket-qr').template.includes('!`'));
   const runtime = JSON.parse(await readFile(join(state, 'runtime.json'), 'utf8'));
+  const quietPair = spawnSync(process.execPath, [join(state, 'cli.mjs'), 'pair', '--quiet', '--no-open'], {
+    env,
+    encoding: 'utf8',
+    timeout: 15000,
+  });
+  assert.equal(quietPair.status, 0, quietPair.stderr);
+  assert(quietPair.stdout.includes('QR page created.'));
+  assert(
+    !/occ:\/\/pair|code=|controlToken/.test(quietPair.stdout),
+    'Pairing secret appeared in command output',
+  );
   const pair = await request(
     '/occ/local/pair',
     { method: 'POST', headers: { 'X-OCC-Control': runtime.controlToken }, body: '{}' },
@@ -165,6 +235,27 @@ try {
   const info = await request('/occ/info', { headers }, true);
   assert.equal(info.deviceID, device.deviceID);
   console.log('PASS real OpenCode config PATCH, plugin reload handoff and unchanged device access');
+  const exited = new Promise((resolve) => child.once('exit', resolve));
+  child.kill();
+  await exited;
+  serverUrl = 'http://127.0.0.1:4099';
+  child = startServer(4099);
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await request('/global/health');
+      break;
+    } catch (error) {
+      if (attempt >= 30) throw error;
+      await wait(500);
+    }
+  }
+  await request('/command');
+  assert.equal((await request(`/api/session/${session.id}`, { headers }, true)).id, session.id);
+  assert.equal((await request('/occ/info', { headers }, true)).deviceID, device.deviceID);
+  console.log(
+    'PASS automatic plugin start after restart on a different upstream port, preserving paired device access',
+  );
+  await checkManualHandoff();
   console.log('No AI/provider requests were made.');
 } catch (error) {
   await writeFile(join(root, 'server.log'), logs.join('').replaceAll(password, '[REDACTED]'));

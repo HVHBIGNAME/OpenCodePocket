@@ -8,21 +8,23 @@
 
 ## 1. Установить companion
 
-**Windows:** [скачать Install-Pocket.cmd](https://github.com/HVHBIGNAME/OpenCodePocket/releases/download/v1.0.1/Install-Pocket.cmd) и запустить двойным щелчком. Права администратора не нужны.
+**Windows:** [скачать Install-Pocket.cmd](https://github.com/HVHBIGNAME/OpenCodePocket/releases/download/v1.0.4/Install-Pocket.cmd) и запустить двойным щелчком. Права администратора не нужны.
 
 **macOS / Linux:**
 
 ```sh
-curl -fsSL https://github.com/HVHBIGNAME/OpenCodePocket/releases/download/v1.0.1/install-pocket.sh | sh
+curl -fsSL https://github.com/HVHBIGNAME/OpenCodePocket/releases/download/v1.0.4/install-pocket.sh | sh
 ```
 
 Если Node.js 22+ уже установлен:
 
 ```sh
-npx --yes --package=https://github.com/HVHBIGNAME/OpenCodePocket/releases/download/v1.0.1/hvhbigname-occ-bridge-1.0.1.tgz occ-pocket install
+npx --yes --package=https://github.com/HVHBIGNAME/OpenCodePocket/releases/download/v1.0.4/hvhbigname-occ-bridge-1.0.4.tgz occ-pocket install
 ```
 
 Установщик помещает самостоятельный `occ-pocket.js` в `~/.config/opencode/plugins/`, добавляет TUI-модуль в `tui.json`/`tui.jsonc` и настраивает HTTP-порт 4096, только если порт не задан. Существующие плагины, поля и комментарии JSONC сохраняются; изменённые конфиги получают `.occ-backup`. Старый OCC-плагин копируется в `occ-pocket/occ-pocket.previous.js`. Перезапусти OpenCode после установки или обновления.
+
+Команды сохраняются в `~/.config/opencode/commands/pocket*.md`, CLI и настройки — в `occ-pocket/`. Уже существующая пользовательская команда с тем же именем не перезаписывается. Плагин из каталога `plugins/` OpenCode загружает автоматически; добавлять его второй раз в список npm-плагинов не требуется.
 
 ## 2. Перезапустить OpenCode
 
@@ -39,7 +41,7 @@ opencode
 | `/pocket-status` | Состояние соединения, адрес и подключённые устройства |
 | `/pocket-config` | Туннель/LAN/свой URL, имя, порт и отчёты |
 
-В TUI команды выполняются локально без обращения к модели. В desktop команды используют инструмент `pocket_manage` через агента. Сам код QR и токен управления в ответ инструмента не попадают. Для применения сохранённых настроек подключения перезапусти OpenCode.
+В TUI команды выполняются локально без обращения к модели. В desktop шаблон запускает локальный CLI перед генерацией ответа: `/pocket-qr` открывает страницу без печати секрета в чат, `/pocket-status` возвращает состояние. Изменение настроек по `/pocket-config` использует `pocket_manage` через агента. Сам код QR и токен управления в ответ не попадают. Для применения сохранённых настроек подключения перезапусти OpenCode.
 
 Если API защищён паролем, процесс моста/плагина должен иметь те же `OPENCODE_SERVER_PASSWORD` и `OPENCODE_SERVER_USERNAME`. По умолчанию логин `opencode`.
 
@@ -50,6 +52,8 @@ opencode
 ```sh
 occ-pocket start --upstream http://127.0.0.1:4096 --tunnel
 ```
+
+Для временного моста можно добавить `--parent-pid PID`, где `PID` — процесс текущего сервера OpenCode. При его завершении standalone-мост освобождает порт. На следующем старте установленный плагин подключается к новому адресу сервера автоматически; краткий переход порта повторяется в течение пяти секунд.
 
 **Не запускай ещё один `opencode serve`, если нужно отвечать на вопросы уже работающего TUI.** История лежит в общей базе, но ожидание разрешения и работающий процесс относятся к конкретному серверу. Если TUI не выставляет HTTP-порт, сначала сохрани ход работы и перезапусти его с `--port`.
 
@@ -83,7 +87,7 @@ occ-pocket install --url https://occ.example.com
 occ-pocket install --lan
 ```
 
-Этот режим слушает `0.0.0.0:4141`. Телефон и компьютер должны видеть друг друга, а firewall — разрешать TCP 4141. Автовыбор берёт первый внешний IPv4; при нескольких адаптерах укажи нужный адрес:
+Этот режим слушает `0.0.0.0:4141`. Телефон и компьютер должны видеть друг друга, а firewall — разрешать TCP 4141. Автовыбор предпочитает физический локальный адаптер виртуальным/VPN; при нескольких адаптерах укажи нужный адрес:
 
 ```sh
 occ-pocket pair --url http://192.168.1.20:4141
@@ -100,6 +104,7 @@ HTTP разрешён только для локальных адресов, `.l
 | Симптом | Проверка |
 | --- | --- |
 | QR не появился | `cloudflared --version`, логи `occ-pocket` в OpenCode, занятость 4141. |
+| Нет команд `/pocket*` | Повтори установку и полностью перезапусти OpenCode. Проверь наличие `plugins/occ-pocket.js` и `commands/pocket*.md` в используемом каталоге конфигурации. |
 | Сервер не отвечает | Открой `http://127.0.0.1:4096/global/health` на ПК; проверь порт текущего TUI. |
 | HTTP 401 | Пароль прямого сервера или отозванный ключ устройства; сформируй новый QR. |
 | История есть, вопроса нет | Возможно, выбран другой процесс OpenCode. |

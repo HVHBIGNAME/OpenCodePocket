@@ -32,30 +32,30 @@
 
 ## Установка
 
-**Android:** [скачать подписанный APK](https://github.com/HVHBIGNAME/OpenCodePocket/releases/download/v1.0.3/OpenCodePocket-1.0.3-android.apk). APK подписан постоянным ключом проекта. Android 8+.
+**Android:** [скачать подписанный APK](https://github.com/HVHBIGNAME/OpenCodePocket/releases/download/v1.0.4/OpenCodePocket-1.0.4-android.apk). APK подписан постоянным ключом проекта. Android 8+.
 
-**iOS:** [скачать IPA](https://github.com/HVHBIGNAME/OpenCodePocket/releases/download/v1.0.3/OpenCodePocket-1.0.3-ios-unsigned.ipa). Это скомпилированный arm64 IPA для iOS 15+, **без Apple-подписи**. Для установки нужна самостоятельная подпись через Sideloadly/AltStore или свою Apple Developer-команду. Фоновый APNs требует подходящих entitlements и provisioning profile. [Подробнее](docs/build.md#ios).
+**iOS:** [скачать IPA](https://github.com/HVHBIGNAME/OpenCodePocket/releases/download/v1.0.4/OpenCodePocket-1.0.4-ios-unsigned.ipa). Это скомпилированный arm64 IPA для iOS 15+, **без Apple-подписи**. Для установки нужна самостоятельная подпись через Sideloadly/AltStore или свою Apple Developer-команду. Фоновый APNs требует подходящих entitlements и provisioning profile. [Подробнее](docs/build.md#ios).
 
 ### Компьютер → телефон
 
-**Windows:** [скачай `Install-Pocket.cmd`](https://github.com/HVHBIGNAME/OpenCodePocket/releases/download/v1.0.3/Install-Pocket.cmd) и запусти двойным щелчком. Установщик сам скачает Node.js, если его нет, и `cloudflared`, проверит контрольные суммы и подключит плагин.
+**Windows:** [скачай `Install-Pocket.cmd`](https://github.com/HVHBIGNAME/OpenCodePocket/releases/download/v1.0.4/Install-Pocket.cmd) и запусти двойным щелчком. Установщик сам скачает Node.js, если его нет, и `cloudflared`, проверит контрольные суммы и подключит плагин.
 
 **macOS / Linux:**
 
 ```sh
-curl -fsSL https://github.com/HVHBIGNAME/OpenCodePocket/releases/download/v1.0.3/install-pocket.sh | sh
+curl -fsSL https://github.com/HVHBIGNAME/OpenCodePocket/releases/download/v1.0.4/install-pocket.sh | sh
 ```
 
 1. После установки плагина **перезапусти OpenCode**. HTTP-порт настраивается автоматически, существующий порт сохраняется.
 2. Выполни **`/pocket-qr`** — QR откроется в браузере компьютера.
 3. В OCC: **Подключить компьютер → Сканировать QR-код → Подключиться**.
 
-**`/pocket`** — меню, **`/pocket-status`** — состояние, **`/pocket-config`** — выбор туннеля или LAN, имя и порт. В TUI это локальные команды с меню; в desktop они используют инструмент плагина через агента. Изменения подключения применяются после перезапуска OpenCode. QR одноразовый и действует 10 минут; секрет OpenCode не попадает в QR.
+**`/pocket`** — меню, **`/pocket-status`** — состояние, **`/pocket-config`** — выбор туннеля или LAN, имя и порт. В TUI это локальные команды с меню; в desktop QR и статус выполняются через локальный CLI до ответа модели, а изменения настроек — через `pocket_manage`. Изменения подключения применяются после перезапуска OpenCode. QR одноразовый и действует 10 минут; секрет OpenCode не попадает в QR.
 
 Если Node.js уже установлен, доступна одна команда:
 
 ```sh
-npx --yes --package=https://github.com/HVHBIGNAME/OpenCodePocket/releases/download/v1.0.3/hvhbigname-occ-bridge-1.0.3.tgz occ-pocket install
+npx --yes --package=https://github.com/HVHBIGNAME/OpenCodePocket/releases/download/v1.0.4/hvhbigname-occ-bridge-1.0.4.tgz occ-pocket install
 ```
 
 Если OpenCode уже слушает порт, можно подключить мост без перезапуска:
@@ -69,6 +69,13 @@ occ-pocket start --upstream http://127.0.0.1:4096 --tunnel
 Свой туннель: `--url https://your-tunnel.example` вместо `--tunnel`. Локальная сеть/VPN: `--lan`. [Все сценарии →](docs/connect.md)
 
 ## Интерфейс
+
+### В версии 1.0.4
+
+- Исправлена установка автозапуска и `/pocket*`: команды сохраняются отдельными файлами, путь к Node учитывает пробелы и Unicode. Для применения обновления компьютера нужен перезапуск OpenCode.
+- Новые статусы больше не переставляют существующие строки списка; сохраняются порядок, количество показанных сессий и позиция прокрутки. Диалог возвращается к месту чтения после вкладок и повторного открытия.
+- Завершённый вызов субагента не становится работающим при повторном использовании его сессии. Различаются очередь, фоновый запуск, ожидание ответа, повтор, отмена и ошибка.
+- Части сообщений и дельты, пришедшие до заголовка, временно сохраняются. HTTP-история согласуется с событиями; повторные event ID не дублируют текст, неполное событие не подтверждается курсором.
 
 ### В версии 1.0.3
 

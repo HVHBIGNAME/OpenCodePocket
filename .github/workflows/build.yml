@@ -104,6 +104,8 @@ jobs:
           chmod +x gradlew
           keytool -list -keystore "$OCC_KEYSTORE_FILE" -storepass:env OCC_KEYSTORE_PASSWORD -alias occ
           ./gradlew assembleDebug assembleRelease lintRelease --console=plain --stacktrace
+      - name: Check native event reconnects
+        run: node scripts/test-native-events.mjs
       - name: Verify APK signature and package
         run: |
           mkdir -p artifacts

@@ -11,6 +11,19 @@ import {
 import { pushFromEnvironment } from './push';
 import { reportOptions } from './reports';
 import { managePocket } from './management';
+import { installedCommands } from './commands';
+import { setTimeout as delay } from 'node:timers/promises';
+
+async function startBridge(options: Parameters<typeof createBridge>[0]) {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await createBridge(options);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EADDRINUSE' || attempt >= 20) throw error;
+      await delay(250);
+    }
+  }
+}
 
 type Running = {
   references: number;
@@ -30,7 +43,7 @@ const PocketPlugin: Plugin = async (context) => {
   if (!registry[key]) {
     registry[key] = (async () => {
       const settings = await readSettings();
-      const bridge = await createBridge({
+      const bridge = await startBridge({
         ...settings,
         upstream: context.serverUrl.toString(),
         stateDirectory: stateHome(),
@@ -77,26 +90,8 @@ const PocketPlugin: Plugin = async (context) => {
   return {
     config: async (config) => {
       config.command ??= {};
-      const commands = {
-        pocket: [
-          'Pocket: подключение и настройки',
-          'Show Pocket status using pocket_manage action=status, then briefly list /pocket-qr and /pocket-config.',
-        ],
-        'pocket-qr': [
-          'Pocket: подключить телефон / новый QR',
-          'Call pocket_manage action=qr. It opens the pairing QR on this computer. Return the result briefly; do not read the QR file or include pairing secrets in chat.',
-        ],
-        'pocket-status': [
-          'Pocket: состояние подключения',
-          'Call pocket_manage action=status and report the connection state briefly.',
-        ],
-        'pocket-config': [
-          'Pocket: настройки подключения',
-          'Use pocket_manage to show settings or configure them according to: $ARGUMENTS. If no changes were specified, show settings and ask which connection mode (tunnel, lan, custom), name or port to change. Explain that applying settings requires restarting OpenCode.',
-        ],
-      };
-      for (const [name, [description, template]] of Object.entries(commands)) {
-        config.command[name] ??= { description, template: template! };
+      for (const [name, definition] of Object.entries(await installedCommands(stateHome()))) {
+        config.command[name] ??= definition;
       }
     },
     tool: {

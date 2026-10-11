@@ -30,6 +30,8 @@ async function main() {
       origin: { type: 'string', multiple: true },
       'local-reports': { type: 'boolean' },
       'no-open': { type: 'boolean' },
+      quiet: { type: 'boolean' },
+      'parent-pid': { type: 'string' },
     },
   });
   const command = positionals[0] ?? 'help';
@@ -41,6 +43,7 @@ async function main() {
   occ-pocket install --url URL      Install behind an existing HTTPS tunnel
   occ-pocket start --tunnel         Run the companion without a plugin
   occ-pocket pair                  Generate another single-use pairing QR
+  occ-pocket pair --quiet          Open the QR without printing secrets in command output
   occ-pocket status                Check connection and paired devices
   occ-pocket config --lan          Save Wi-Fi/VPN mode (restart OpenCode to apply)
   occ-pocket config --tunnel       Save automatic tunnel mode
@@ -51,7 +54,8 @@ HVHBIGNAME/OpenCodePocket Issues using gh auth on this computer.
 Use --local-reports to keep reports on this computer only.
 
 Options: --upstream http://127.0.0.1:4096  --port 4141  --name NAME
-         --origin http://127.0.0.1:1420 (development browser, repeatable)
+          --origin http://127.0.0.1:1420 (development browser, repeatable)
+          --parent-pid PID (start: stop when this process exits)
 
 Restart OpenCode after installing, then use /pocket, /pocket-qr, /pocket-config.
 The installer enables the local HTTP port when no port is configured.
@@ -81,7 +85,7 @@ Config: ${join(stateHome(), 'bridge.json')}`);
     return;
   }
   if (command === 'pair') {
-    console.log(await requestPairing(!values['no-open'], true, values.url));
+    console.log(await requestPairing(!values['no-open'], !values.quiet, values.url));
     return;
   }
   if (command === 'status') {
@@ -106,6 +110,12 @@ Config: ${join(stateHome(), 'bridge.json')}`);
     return;
   }
   if (command !== 'start') throw new Error(`Unknown command: ${command}. See --help.`);
+  const parentPID = values['parent-pid'] ? Number(values['parent-pid']) : undefined;
+  if (
+    parentPID !== undefined &&
+    (!Number.isSafeInteger(parentPID) || parentPID <= 0 || parentPID === process.pid)
+  )
+    throw new Error('Invalid parent process ID');
   const bridge = await createBridge({
     ...settings,
     stateDirectory: stateHome(),
@@ -129,14 +139,26 @@ Config: ${join(stateHome(), 'bridge.json')}`);
     throw error;
   }
   let closing = false;
+  let parentTimer: ReturnType<typeof setInterval> | undefined;
   const close = () => {
     if (closing) return;
     closing = true;
+    clearInterval(parentTimer);
     tunnel?.process.kill();
     void bridge.close().catch(console.error);
   };
   process.once('SIGINT', close);
   process.once('SIGTERM', close);
+  if (parentPID) {
+    parentTimer = setInterval(() => {
+      try {
+        process.kill(parentPID, 0);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ESRCH') close();
+      }
+    }, 1000);
+    parentTimer.unref();
+  }
 }
 
 main().catch((error: unknown) => {

@@ -36,8 +36,9 @@ export function App() {
     setToast,
   } = usePocket();
   useLayoutEffect(() => {
+    if (client && (screen === 'sessions' || screen === 'overview')) return;
     window.scrollTo(0, 0);
-  }, [screen, client?.connection.id]);
+  }, [screen, client]);
   useEffect(installKeyboardHandling, []);
   useEffect(installGlassHandling, []);
   if (!ready)
@@ -75,7 +76,7 @@ export function App() {
         >
           {home ? (
             client ? (
-              <SessionsPage />
+              <SessionsPage key={client.connection.id} />
             ) : (
               <Welcome />
             )

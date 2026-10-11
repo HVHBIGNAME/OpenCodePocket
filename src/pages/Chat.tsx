@@ -38,6 +38,7 @@ export function Chat() {
     messageLoading,
     loadMessages,
     historyLimits,
+    chatPositions,
     perform,
     status,
     openRelatedSession,
@@ -50,7 +51,9 @@ export function Chat() {
   const [requestsOpen, setRequestsOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchMatch, setSearchMatch] = useState<string>();
-  const [atBottom, setAtBottom] = useState(true);
+  const [atBottom, setAtBottom] = useState(() =>
+    session ? (chatPositions.current.get(session.id)?.bottom ?? true) : true,
+  );
   const scrollRef = useRef<HTMLDivElement>(null);
   const selectedID = session?.id;
   const entries = selectedID ? (data.messages[selectedID] ?? emptyMessages) : emptyMessages;
@@ -59,9 +62,12 @@ export function Chat() {
   );
   const limit = selectedID ? (historyLimits[selectedID] ?? 100) : 100;
   const prependAnchor = useRef<{ id: string; top: number; entries: MessageEntry[] } | undefined>(undefined);
-  const previousSession = useRef(session?.id);
-  const positions = useRef(new Map<string, { top: number; bottom: boolean }>());
-  const children = data.sessions.filter((item) => item.parentID === session?.id);
+  const previousSession = useRef<string | undefined>(undefined);
+  const positions = chatPositions;
+  const previousTab = useRef(tab);
+  const children = data.sessions
+    .filter((item) => item.parentID === session?.id && !item.time.archived)
+    .sort((a, b) => a.time.created - b.time.created || a.id.localeCompare(b.id));
   const questions = data.questions.filter((item) => item.sessionID === session?.id);
   const permissions = data.permissions.filter((item) => item.sessionID === session?.id);
   const requestCount = questions.length + permissions.length;
@@ -81,13 +87,17 @@ export function Chat() {
       setRequestsOpen(false);
       setActions(false);
       previousSession.current = selectedID;
+    } else if (tab === 'chat' && previousTab.current !== 'chat' && scrollRef.current) {
+      const saved = selectedID ? positions.current.get(selectedID) : undefined;
+      scrollRef.current.scrollTop = saved && !saved.bottom ? saved.top : scrollRef.current.scrollHeight;
     } else if (prependAnchor.current && prependAnchor.current.entries !== entries && scrollRef.current) {
       const anchor = prependAnchor.current;
       const element = scrollRef.current.querySelector(`[data-message-id="${CSS.escape(anchor.id)}"]`);
       if (element) scrollRef.current.scrollTop += element.getBoundingClientRect().top - anchor.top;
       prependAnchor.current = undefined;
     } else if (atBottom && scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-  }, [selectedID, entries, atBottom, tab]);
+    previousTab.current = tab;
+  }, [selectedID, entries, atBottom, tab, positions]);
   useLayoutEffect(() => {
     const element = scrollRef.current;
     if (!element) return;
@@ -183,9 +193,11 @@ export function Chat() {
                   {data.questions.some((item) => item.sessionID === child.id) ||
                   data.permissions.some((item) => item.sessionID === child.id)
                     ? 'Ждёт ответа'
-                    : data.statuses[child.id]?.type === 'busy'
-                      ? 'В работе'
-                      : 'Открыть'}
+                    : data.statuses[child.id]?.type === 'retry'
+                      ? 'Повтор запроса'
+                      : data.statuses[child.id]?.type === 'busy'
+                        ? 'В работе'
+                        : 'Открыть'}
                 </small>
                 <ChevronRight size={14} />
               </button>

@@ -2,6 +2,7 @@ import { test, expect, type Page } from '@playwright/test';
 import { mkdir } from 'node:fs/promises';
 import { randomBytes } from 'node:crypto';
 import sharp from 'sharp';
+import type { MessageEntry, Session } from '../../src/types';
 
 async function connect(page: Page) {
   await page.request.post('http://127.0.0.1:4097/__test/reset');
@@ -39,6 +40,185 @@ test('keeps a healthy stream quiet without periodic workspace polling', async ({
   expect(requests).toEqual([]);
   await expect(page.getByText('Обновляем…', { exact: true })).toHaveCount(0);
   await expect(page.locator('.pull-refresh')).toHaveCount(0);
+});
+
+test('recovers reordered message events and ignores duplicate source event IDs', async ({ page }) => {
+  await connect(page);
+  await page.getByRole('button', { name: /Панель управления — новая архитектура/ }).click();
+  await expect(page.getByText('Предлагаемая структура', { exact: true })).toBeVisible();
+  const properties = {
+    sessionID: 'ses_panel',
+    messageID: 'msg_reordered',
+    partID: 'prt_reordered',
+    field: 'text',
+    delta: 'Текст из переставленных событий.',
+  };
+  const event = { type: 'message.part.delta', properties, id: 'evt_duplicate_check', emitOnly: true };
+  await page.request.post('http://127.0.0.1:4097/__test/event', { data: event });
+  await page.request.post('http://127.0.0.1:4097/__test/event', { data: event });
+  await page.request.post('http://127.0.0.1:4097/__test/event', {
+    data: {
+      emitOnly: true,
+      type: 'message.part.updated',
+      properties: {
+        part: {
+          id: 'prt_reordered',
+          messageID: 'msg_reordered',
+          sessionID: 'ses_panel',
+          type: 'text',
+          text: '',
+        },
+      },
+    },
+  });
+  await page.request.post('http://127.0.0.1:4097/__test/event', {
+    data: {
+      emitOnly: true,
+      type: 'message.updated',
+      properties: {
+        info: {
+          id: 'msg_reordered',
+          sessionID: 'ses_panel',
+          role: 'user',
+          time: { created: Date.now() },
+          agent: 'build',
+          model: { providerID: 'p', modelID: 'm' },
+        },
+      },
+    },
+  });
+  await expect(page.locator('[data-message-id="msg_reordered"] .message-parts')).toHaveText(
+    'Текст из переставленных событий.',
+  );
+});
+
+test('keeps fetched message parts when the header arrives during initial hydration', async ({ page }) => {
+  await connect(page);
+  let release!: () => void;
+  let snapshotReady!: (messages: MessageEntry[]) => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const ready = new Promise<MessageEntry[]>((resolve) => {
+    snapshotReady = resolve;
+  });
+  await page.route(
+    '**/api/session/ses_panel/message?*',
+    async (route) => {
+      const response = await route.fetch();
+      snapshotReady(await response.json());
+      await gate;
+      await route.fulfill({ response });
+    },
+    { times: 1 },
+  );
+  await page.getByRole('button', { name: /Панель управления — новая архитектура/ }).click();
+  const snapshot = await ready;
+  await page.request.post('http://127.0.0.1:4097/__test/event', {
+    data: {
+      type: 'message.updated',
+      properties: { info: snapshot.find((entry) => entry.info.id === 'msg_answer')!.info },
+    },
+  });
+  await expect(page.locator('[data-message-id="msg_answer"]')).toHaveCount(1);
+  release();
+  await expect(page.getByText('Предлагаемая структура', { exact: true })).toBeVisible();
+});
+
+test('reconciles a delta arriving before its first history snapshot without duplicating it', async ({
+  page,
+}) => {
+  await connect(page);
+  let release!: () => void;
+  let snapshotReady!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const ready = new Promise<void>((resolve) => {
+    snapshotReady = resolve;
+  });
+  await page.route(
+    '**/api/session/ses_panel/message?*',
+    async (route) => {
+      const response = await route.fetch();
+      snapshotReady();
+      await gate;
+      await route.fulfill({ response });
+    },
+    { times: 1 },
+  );
+  await page.getByRole('button', { name: /Панель управления — новая архитектура/ }).click();
+  await ready;
+  await page.request.post('http://127.0.0.1:4097/__test/event', {
+    data: {
+      type: 'message.part.delta',
+      properties: {
+        sessionID: 'ses_panel',
+        messageID: 'msg_answer',
+        partID: 'prt_end',
+        field: 'text',
+        delta: '\n\nДельта перед историей.',
+      },
+    },
+  });
+  // A following event provides a visible fence: both events have reached the client before releasing HTTP.
+  await page.request.post('http://127.0.0.1:4097/__test/event', {
+    data: { type: 'session.status', properties: { sessionID: 'ses_panel', status: { type: 'busy' } } },
+  });
+  await expect(page.locator('.chat-busy')).toBeVisible();
+  release();
+  await expect(page.locator('.chat-scroll')).toContainText('Дельта перед историей.');
+  expect((await page.locator('.chat-scroll').innerText()).split('Дельта перед историей.').length - 1).toBe(1);
+});
+
+test('keeps session rows and reading position stable across events and navigation', async ({ page }) => {
+  await connect(page);
+  await expect(page.getByRole('button', { name: 'Обновить сессии' })).toBeEnabled();
+  const order = await page.locator('.session-title').allTextContents();
+  const target = page.locator('.session-row').last();
+  await target.scrollIntoViewIfNeeded();
+  const top = await page.evaluate(() => window.scrollY);
+  const sessions: Session[] = await (
+    await page.request.get('http://127.0.0.1:4097/experimental/session')
+  ).json();
+  const changed = sessions.find((item) => item.id === 'ses_docs')!;
+  await page.request.post('http://127.0.0.1:4097/__test/event', {
+    data: {
+      type: 'session.updated',
+      properties: { info: { ...changed, time: { ...changed.time, updated: Date.now() + 1000 } } },
+    },
+  });
+  await expect(page.locator('.session-row').filter({ hasText: changed.title })).toContainText('сейчас');
+  expect(await page.locator('.session-title').allTextContents()).toEqual(order);
+  expect(Math.abs((await page.evaluate(() => window.scrollY)) - top)).toBeLessThan(4);
+  await target.click();
+  await page.getByRole('button', { name: 'Назад к сессиям' }).click();
+  expect(await page.locator('.session-title').allTextContents()).toEqual(order);
+  await expect.poll(async () => Math.abs((await page.evaluate(() => window.scrollY)) - top)).toBeLessThan(4);
+});
+
+test('restores chat reading position after tabs and reopening a session', async ({ page }) => {
+  await connect(page);
+  await page.request.post('http://127.0.0.1:4097/__test/history');
+  await page.getByRole('button', { name: /Панель управления — новая архитектура/ }).click();
+  await expect(page.locator('.message')).toHaveCount(100);
+  const scroll = page.locator('.chat-scroll');
+  await scroll.evaluate((element) => {
+    element.scrollTop = 320;
+    element.dispatchEvent(new Event('scroll'));
+  });
+  await expect(page.getByRole('button', { name: 'К последнему' })).toBeVisible();
+  const top = await scroll.evaluate((element) => element.scrollTop);
+  await page.getByRole('button', { name: 'Задачи', exact: true }).click();
+  await page.getByRole('button', { name: 'Диалог', exact: true }).click();
+  await expect
+    .poll(async () => Math.abs((await scroll.evaluate((element) => element.scrollTop)) - top))
+    .toBeLessThan(4);
+  await page.getByRole('button', { name: 'Назад к сессиям' }).click();
+  await page.getByRole('button', { name: /Панель управления — новая архитектура/ }).click();
+  await expect
+    .poll(async () => Math.abs((await scroll.evaluate((element) => element.scrollTop)) - top))
+    .toBeLessThan(4);
 });
 
 test('hides repeated empty reasoning but shows text when it arrives later', async ({ page }) => {
@@ -134,6 +314,34 @@ test('opens sessions when a secondary endpoint fails and updates tasks directly 
   await expect(page.getByText('Задача обновлена событием', { exact: true })).toBeVisible();
   expect(fetches).toBe(0);
   await expect(page.getByText('Подключить интерфейс управления', { exact: true })).toHaveCount(0);
+});
+
+test('resynchronizes missed messages when only the bridge upstream reconnects', async ({ page }) => {
+  await connect(page);
+  await page.getByRole('button', { name: /Панель управления — новая архитектура/ }).click();
+  await expect(page.getByText('Предлагаемая структура', { exact: true })).toBeVisible();
+  await page.request.post('http://127.0.0.1:4097/__test/event', {
+    data: { type: 'occ.upstream', properties: { online: false } },
+  });
+  await expect(page.locator('.app-shell')).toHaveAttribute('data-connection-state', 'reconnecting');
+  await page.request.post('http://127.0.0.1:4097/__test/event', {
+    data: {
+      silent: true,
+      type: 'message.part.delta',
+      properties: {
+        sessionID: 'ses_panel',
+        messageID: 'msg_answer',
+        partID: 'prt_end',
+        field: 'text',
+        delta: '\n\nСообщение после восстановления upstream.',
+      },
+    },
+  });
+  await page.request.post('http://127.0.0.1:4097/__test/event', {
+    data: { type: 'occ.upstream', properties: { online: true } },
+  });
+  await expect(page.locator('.app-shell')).toHaveAttribute('data-connection-state', 'live');
+  await expect(page.locator('.chat-scroll')).toContainText('Сообщение после восстановления upstream.');
 });
 
 test('preserves project filters and separates archived sessions and subtasks', async ({ page }) => {
@@ -368,9 +576,35 @@ test('opens task sessions, reads agent messages and returns to the parent with i
   await page.request.post('http://127.0.0.1:4097/__test/event', {
     data: { type: 'session.status', properties: { sessionID: 'ses_child', status: { type: 'idle' } } },
   });
+  await expect(task).toContainText('Ожидает результат');
+  const entries: MessageEntry[] = await (
+    await page.request.get('http://127.0.0.1:4097/session/ses_panel/message')
+  ).json();
+  const call = entries.flatMap((entry) => entry.parts).find((part) => part.id === 'prt_task')!;
+  await page.request.post('http://127.0.0.1:4097/__test/event', {
+    data: {
+      type: 'message.part.updated',
+      properties: {
+        part: {
+          ...call,
+          state: {
+            status: 'completed',
+            input: { description: 'Аудит модулей', subagent_type: 'explore' },
+            title: 'Аудит модулей',
+            metadata: { sessionId: 'ses_child' },
+            output: 'task_id: ses_child\n<task_result>Аудит завершён.</task_result>',
+            time: { start: 1, end: 2 },
+          },
+        },
+      },
+    },
+  });
+  await page.request.post('http://127.0.0.1:4097/__test/event', {
+    data: { type: 'session.status', properties: { sessionID: 'ses_child', status: { type: 'busy' } } },
+  });
   await expect(task).toContainText('Завершена');
   await page.getByText('Агенты · 1', { exact: true }).click();
-  await page.getByRole('button', { name: /Аудит модулей \(@explore subagent\).*Открыть/ }).click();
+  await page.getByRole('button', { name: /Аудит модулей \(@explore subagent\).*В работе/ }).click();
   await expect(page.getByRole('button', { name: 'Назад к основной сессии' })).toBeVisible();
 });
 

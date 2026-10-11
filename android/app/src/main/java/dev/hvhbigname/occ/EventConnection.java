@@ -61,31 +61,12 @@ final class EventConnection {
                     break;
                 }
                 if (status != 200) throw new java.io.IOException("HTTP " + status);
+                String contentType = active.getContentType();
+                if (contentType == null || !contentType.toLowerCase(java.util.Locale.ROOT).contains("text/event-stream"))
+                    throw new java.io.IOException("Expected an OpenCode event stream");
                 failures = 0;
                 listener.onState(true, "");
-                try (BufferedReader reader = new BufferedReader(new InputStreamReader(active.getInputStream(), StandardCharsets.UTF_8))) {
-                    StringBuilder data = new StringBuilder();
-                    String eventId = "";
-                    String line;
-                    while (!stopped && (line = reader.readLine()) != null) {
-                        if (line.isEmpty()) {
-                            if (data.length() > 0) {
-                                if (eventId.isEmpty() || seen.add(eventId)) listener.onEvent(data.substring(0, data.length() - 1));
-                                if (!eventId.isEmpty()) lastId = eventId;
-                                if (seen.size() > 512) seen.remove(seen.iterator().next());
-                                data.setLength(0);
-                            }
-                            eventId = "";
-                        } else if (line.startsWith("data:")) {
-                            String value = line.substring(5);
-                            data.append(value.startsWith(" ") ? value.substring(1) : value).append('\n');
-                            if (data.length() > 8 * 1024 * 1024) throw new java.io.IOException("SSE event too large");
-                        } else if (line.startsWith("id:")) {
-                            String value = line.substring(3).trim();
-                            if (value.indexOf('\0') < 0) eventId = value;
-                        }
-                    }
-                }
+                readEvents(active);
             } catch (Exception error) {
                 if (!stopped) listener.onState(false, error.getMessage() == null ? "Соединение потеряно" : error.getMessage());
             } finally {
@@ -97,6 +78,33 @@ final class EventConnection {
                 listener.onState(false, "Восстанавливаем соединение");
                 try { Thread.sleep(Math.min(30000, 1000L << Math.min(failures++, 5))); }
                 catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); break; }
+            }
+        }
+    }
+
+    private void readEvents(HttpURLConnection active) throws java.io.IOException {
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(active.getInputStream(), StandardCharsets.UTF_8))) {
+            StringBuilder data = new StringBuilder();
+            String eventId = null;
+            String line;
+            while (!stopped && (line = reader.readLine()) != null) {
+                if (line.isEmpty()) {
+                    if (eventId != null) lastId = eventId;
+                    if (data.length() > 0) {
+                        if (eventId == null || eventId.isEmpty() || seen.add(eventId)) listener.onEvent(data.substring(0, data.length() - 1));
+                        if (seen.size() > 512) seen.remove(seen.iterator().next());
+                        data.setLength(0);
+                    }
+                    eventId = null;
+                } else if (line.startsWith("data:")) {
+                    String value = line.substring(5);
+                    data.append(value.startsWith(" ") ? value.substring(1) : value).append('\n');
+                    if (data.length() > 8 * 1024 * 1024) throw new java.io.IOException("SSE event too large");
+                } else if (line.equals("id") || line.startsWith("id:")) {
+                    String value = line.equals("id") ? "" : line.substring(3);
+                    if (value.startsWith(" ")) value = value.substring(1);
+                    if (value.indexOf('\0') < 0) eventId = value;
+                }
             }
         }
     }

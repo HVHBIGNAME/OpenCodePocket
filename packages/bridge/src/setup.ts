@@ -10,6 +10,7 @@ import { ensureCloudflared } from './cloudflared';
 import { setTimeout as delay } from 'node:timers/promises';
 import { normalizeServerUrl } from '../../../shared/protocol';
 import { configureOpenCode } from './install-config';
+import { installCommands } from './commands';
 
 export const configHome = () =>
   process.env.OPENCODE_CONFIG_DIR ??
@@ -200,6 +201,7 @@ export async function installPlugin(settings: Settings) {
   const cli = fileURLToPath(import.meta.url);
   if (cli !== join(stateHome(), 'cli.mjs')) await copyFile(cli, join(stateHome(), 'cli.mjs'));
   await configureOpenCode(configHome(), join(stateHome(), 'tui.mjs'));
+  await installCommands(configHome(), stateHome());
   await saveSettings(settings);
   return destination;
 }

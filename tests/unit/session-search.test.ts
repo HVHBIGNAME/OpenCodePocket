@@ -4,6 +4,7 @@ import {
   filterSessions,
   groupSessions,
   matchesSearch,
+  stableSessionOrder,
 } from '../../src/lib/session-search';
 import { applyEvent, emptyData } from '../../src/store/reducer';
 import type { Session } from '../../src/types';
@@ -28,6 +29,20 @@ const sessions = [
 ];
 
 describe('session organisation', () => {
+  it('keeps existing rows in place on updates and appends new sessions deterministically', () => {
+    const previous = ['other', 'root', 'removed'];
+    const updated = sessions.map((item) =>
+      item.id === 'root' ? { ...item, time: { ...item.time, updated: 999 } } : item,
+    );
+    expect(stableSessionOrder(updated, previous).map((item) => item.id)).toEqual([
+      'other',
+      'root',
+      'archived',
+      'child',
+    ]);
+    expect(previous).toEqual(['other', 'root', 'removed']);
+    expect(stableSessionOrder([], previous)).toEqual([]);
+  });
   it('matches every word regardless of order, case and extra spaces', () => {
     expect(matchesSearch('Панель управления /work/project', ' PROJECT  панель ')).toBe(true);
     expect(matchesSearch('Панель управления', 'панель отсутствует')).toBe(false);

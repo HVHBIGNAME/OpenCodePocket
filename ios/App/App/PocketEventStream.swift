@@ -10,7 +10,9 @@ final class PocketEventStream: NSObject, URLSessionDataDelegate {
     private var task: URLSessionDataTask?
     private var buffer = Data()
     private var lines: [String] = []
-    private var frameID = ""
+    private var frameID: String?
+    private var dataSize = 0
+    private var skipLF = false
     private var lastID = ""
     private var seen: [String] = []
     private var retry: DispatchWorkItem?
@@ -64,7 +66,9 @@ final class PocketEventStream: NSObject, URLSessionDataDelegate {
         if !lastID.isEmpty { request.setValue(lastID, forHTTPHeaderField: "Last-Event-ID") }
         buffer = Data()
         lines = []
-        frameID = ""
+        frameID = nil
+        dataSize = 0
+        skipLF = false
         task = session?.dataTask(with: request)
         task?.resume()
     }
@@ -121,28 +125,39 @@ final class PocketEventStream: NSObject, URLSessionDataDelegate {
         guard !stopped, dataTask == task else { return }
         lastActivity = Date()
         buffer.append(data)
-        if buffer.count > 8 * 1024 * 1024 { dataTask.cancel(); return }
-        while let newline = buffer.firstIndex(of: 10) {
+        if buffer.count + dataSize > 8 * 1024 * 1024 { dataTask.cancel(); return }
+        while !buffer.isEmpty {
+            if skipLF {
+                if buffer.first == 10 { buffer.removeFirst() }
+                skipLF = false
+            }
+            guard let newline = buffer.firstIndex(where: { $0 == 10 || $0 == 13 }) else { break }
             let bytes = buffer[..<newline]
-            let line = String(data: bytes, encoding: .utf8)?.trimmingCharacters(in: CharacterSet(charactersIn: "\r")) ?? ""
+            guard let line = String(data: bytes, encoding: .utf8) else { dataTask.cancel(); return }
+            skipLF = buffer[newline] == 13
             buffer.removeSubrange(...newline)
             if line.isEmpty {
+                if let id = frameID { lastID = id }
                 if !lines.isEmpty {
-                    if frameID.isEmpty || !seen.contains(frameID) {
+                    let id = frameID ?? ""
+                    if id.isEmpty || !seen.contains(id) {
                         onEvent(lines.joined(separator: "\n"))
-                        if !frameID.isEmpty { seen.append(frameID) }
+                        if !id.isEmpty { seen.append(id) }
                     }
-                    if !frameID.isEmpty { lastID = frameID }
                     if seen.count > 512 { seen.removeFirst(seen.count - 512) }
                 }
                 lines = []
-                frameID = ""
+                dataSize = 0
+                frameID = nil
             } else if line.hasPrefix("data:") {
                 var value = String(line.dropFirst(5))
                 if value.hasPrefix(" ") { value.removeFirst() }
                 lines.append(value)
-            } else if line.hasPrefix("id:") {
-                let value = String(line.dropFirst(3)).trimmingCharacters(in: .whitespaces)
+                dataSize += value.utf8.count + 1
+                if dataSize > 8 * 1024 * 1024 { dataTask.cancel(); return }
+            } else if line == "id" || line.hasPrefix("id:") {
+                var value = line == "id" ? "" : String(line.dropFirst(3))
+                if value.hasPrefix(" ") { value.removeFirst() }
                 if !value.contains("\0") { frameID = value }
             }
         }

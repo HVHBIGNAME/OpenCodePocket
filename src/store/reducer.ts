@@ -5,11 +5,10 @@ import type {
   SessionStatus,
   PendingQuestion,
   PendingPermission,
-  Part,
-  Message,
   Todo,
   SnapshotFileDiff,
 } from '../types';
+import { applyMessageEvent } from './message-events';
 
 export type LiveData = {
   sessions: Session[];
@@ -19,6 +18,8 @@ export type LiveData = {
   messages: Record<string, MessageEntry[]>;
   todos: Record<string, Todo[]>;
   diffs: Record<string, SnapshotFileDiff[]>;
+  pendingMessages: Record<string, ServerEvent[]>;
+  needsHistory: Record<string, boolean>;
 };
 export const emptyData = (): LiveData => ({
   sessions: [],
@@ -28,6 +29,8 @@ export const emptyData = (): LiveData => ({
   messages: {},
   todos: {},
   diffs: {},
+  pendingMessages: {},
+  needsHistory: {},
 });
 function upsert<T extends { id: string }>(items: T[], value: T): T[] {
   const index = items.findIndex((item) => item.id === value.id);
@@ -63,6 +66,12 @@ export function applyEvent(state: LiveData, event: ServerEvent): LiveData {
       messages: Object.fromEntries(Object.entries(state.messages).filter(([key]) => !removed.has(key))),
       todos: Object.fromEntries(Object.entries(state.todos).filter(([key]) => !removed.has(key))),
       diffs: Object.fromEntries(Object.entries(state.diffs).filter(([key]) => !removed.has(key))),
+      pendingMessages: Object.fromEntries(
+        Object.entries(state.pendingMessages).filter(([key]) => !removed.has(key)),
+      ),
+      needsHistory: Object.fromEntries(
+        Object.entries(state.needsHistory).filter(([key]) => !removed.has(key)),
+      ),
       statuses: Object.fromEntries(Object.entries(state.statuses).filter(([key]) => !removed.has(key))),
       questions: state.questions.filter((item) => !removed.has(item.sessionID)),
       permissions: state.permissions.filter((item) => !removed.has(item.sessionID)),
@@ -95,71 +104,6 @@ export function applyEvent(state: LiveData, event: ServerEvent): LiveData {
     return { ...state, questions: state.questions.filter((item) => item.id !== p.requestID) };
   if (/^permission\.(v2\.)?replied$/.test(event.type))
     return { ...state, permissions: state.permissions.filter((item) => item.id !== p.requestID) };
-  if (event.type === 'message.updated' && p.info) {
-    const info = p.info as Message;
-    const messages = state.messages[info.sessionID];
-    if (!messages) return state;
-    const entry = messages.find((item) => item.info.id === info.id);
-    return {
-      ...state,
-      messages: {
-        ...state.messages,
-        [info.sessionID]: entry
-          ? messages.map((item) => (item === entry ? { ...item, info } : item))
-          : [...messages, { info, parts: [] }],
-      },
-    };
-  }
-  const part = p.part as Part | undefined;
-  const id = sessionID ?? part?.sessionID;
-  if (!id || !state.messages[id]) return state;
-  const entries = state.messages[id]!;
-  if (event.type === 'message.removed')
-    return {
-      ...state,
-      messages: { ...state.messages, [id]: entries.filter((item) => item.info.id !== p.messageID) },
-    };
-  if (event.type === 'message.part.updated' && part) {
-    return {
-      ...state,
-      messages: {
-        ...state.messages,
-        [id]: entries.map((item) =>
-          item.info.id === part.messageID ? { ...item, parts: upsert(item.parts, part) } : item,
-        ),
-      },
-    };
-  }
-  if (event.type === 'message.part.delta' && p.field === 'text' && typeof p.delta === 'string') {
-    return {
-      ...state,
-      messages: {
-        ...state.messages,
-        [id]: entries.map((item) =>
-          item.info.id !== p.messageID
-            ? item
-            : {
-                ...item,
-                parts: item.parts.map((value) =>
-                  value.id === p.partID && (value.type === 'text' || value.type === 'reasoning')
-                    ? { ...value, text: value.text + p.delta }
-                    : value,
-                ),
-              },
-        ),
-      },
-    };
-  }
-  if (event.type === 'message.part.removed')
-    return {
-      ...state,
-      messages: {
-        ...state.messages,
-        [id]: entries.map((item) => ({
-          ...item,
-          parts: item.parts.filter((value) => value.id !== p.partID),
-        })),
-      },
-    };
+  if (event.type.startsWith('message.')) return applyMessageEvent(state, event);
   return state;
 }

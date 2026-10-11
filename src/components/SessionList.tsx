@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowRight,
   Check,
@@ -16,7 +16,13 @@ import { usePocket } from '../store/PocketProvider';
 import { folderName, timeAgo } from '../lib/format';
 import { Button, EmptyState, IconButton, Modal } from './ui';
 import type { Session } from '../types';
-import { defaultSessionFilters, filterSessions, groupSessions, matchesSearch } from '../lib/session-search';
+import {
+  defaultSessionFilters,
+  filterSessions,
+  groupSessions,
+  matchesSearch,
+  stableSessionOrder,
+} from '../lib/session-search';
 
 export function SessionRow({ session }: { session: Session }) {
   const { data, openSession } = usePocket();
@@ -170,17 +176,38 @@ export function NewSession({ onClose }: { onClose: () => void }) {
 }
 
 export function SessionsPage() {
-  const { data, refresh, perform, refreshing, status, sessionFilters, setSessionFilters } = usePocket();
+  const { data, refresh, perform, refreshing, status, sessionFilters, setSessionFilters, sessionListView } =
+    usePocket();
   const { search, filter, project, children } = sessionFilters;
-  const [visibleCount, setVisibleCount] = useState(60);
+  const [visibleCount, setVisibleCount] = useState(sessionListView.current.visible);
   const [newOpen, setNewOpen] = useState(false);
   const [pull, setPull] = useState(0);
   const pullStart = useRef<number | undefined>(undefined);
   const { sessions: allSessions, statuses, questions, permissions } = data;
-  const sessions = useMemo(
+  const matches = useMemo(
     () => filterSessions({ sessions: allSessions, statuses, questions, permissions }, sessionFilters),
     [allSessions, statuses, questions, permissions, sessionFilters],
   );
+  const ordered = useMemo(
+    () => stableSessionOrder(allSessions, sessionListView.current.order),
+    [allSessions, sessionListView],
+  );
+  const matchingIDs = new Set(matches.map((item) => item.id));
+  const sessions = ordered.filter((item) => matchingIDs.has(item.id));
+  useLayoutEffect(() => {
+    sessionListView.current.order = ordered.map((item) => item.id);
+  }, [ordered, sessionListView]);
+  useLayoutEffect(() => {
+    window.scrollTo(0, sessionListView.current.scroll);
+    const save = () => {
+      sessionListView.current.scroll = window.scrollY;
+    };
+    window.addEventListener('scroll', save, { passive: true });
+    return () => window.removeEventListener('scroll', save);
+  }, [sessionListView]);
+  useLayoutEffect(() => {
+    sessionListView.current.visible = visibleCount;
+  }, [visibleCount, sessionListView]);
   const groups = groupSessions(sessions.slice(0, visibleCount));
   const folders = useMemo(
     () => [...new Set(data.sessions.map((item) => item.directory))].sort(),

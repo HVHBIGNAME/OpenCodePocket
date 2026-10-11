@@ -81,6 +81,19 @@ try {
   const plugin = await readFile(join(config, 'plugins/occ-pocket.js'), 'utf8');
   assert(plugin.includes('pocket_manage'));
   assert(plugin.includes('pocket-qr'));
+  for (const name of ['pocket', 'pocket-qr', 'pocket-status', 'pocket-config']) {
+    const template = await readFile(join(config, 'commands', `${name}.md`), 'utf8');
+    assert(template.includes('!`'), `Missing executable template for ${name}`);
+  }
+  const settingsCommand = (await readFile(join(config, 'commands', 'pocket-config.md'), 'utf8')).match(
+    /!`([^`]+)`/,
+  )[1];
+  const shell = process.platform === 'win32' ? 'powershell.exe' : 'sh';
+  const shellArgs =
+    process.platform === 'win32'
+      ? ['-NoProfile', '-NonInteractive', '-Command', settingsCommand]
+      : ['-c', settingsCommand];
+  assert.equal(JSON.parse(await run(shell, shellArgs)).tunnel, false);
   const result = await run(process.execPath, [join(state, 'cli.mjs'), 'config']);
   assert.equal(JSON.parse(result).tunnel, false);
   const payload = assets.get('occ-pocket-plugin.mjs');

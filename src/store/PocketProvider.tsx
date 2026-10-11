@@ -14,7 +14,8 @@ import { type ServerEvent } from '../../shared/protocol';
 import { ApiError, errorMessage, OpenCodeClient } from '../lib/api';
 import { isNative, platform, PocketNative, vaultRead, vaultWrite } from '../lib/native';
 import { applyEvent, emptyData, type LiveData } from './reducer';
-import { mergeHistory, mergeSnapshot } from './history';
+import { mergeSnapshot } from './history';
+import { reconcileMessages } from './message-events';
 import { DraftStore } from './drafts';
 import { defaultSessionFilters } from '../lib/session-search';
 import { isGenerationCancelled } from '../lib/session-errors';
@@ -57,6 +58,8 @@ function usePocketState() {
   const savedRef = useRef<Connection[]>([]);
   const [ready, setReady] = useState(false);
   const [data, setData] = useState<LiveData>(emptyData);
+  const sessionListView = useRef({ order: [] as string[], scroll: 0, visible: 60 });
+  const chatPositions = useRef(new Map<string, { top: number; bottom: boolean }>());
   const dataRef = useRef(data);
   dataRef.current = data;
   const [sessionFilters, setSessionFilters] = useState(defaultSessionFilters);
@@ -136,12 +139,14 @@ function usePocketState() {
     active?.controller.abort();
     messageRequests.current.set(target.id, request);
     const before = dataRef.current.messages[target.id] ?? [];
+    const pendingBefore = dataRef.current.pendingMessages[target.id];
     setData((previous) =>
-      previous.messages[target.id]
+      previous.messages[target.id] && !previous.needsHistory[target.id]
         ? previous
         : {
             ...previous,
-            messages: { ...previous.messages, [target.id]: before },
+            messages: { ...previous.messages, [target.id]: previous.messages[target.id] ?? before },
+            needsHistory: { ...previous.needsHistory, [target.id]: false },
           },
     );
     setLoadingSession(target.id);
@@ -156,13 +161,7 @@ function usePocketState() {
         setHistoryLimits((previous) => ({ ...previous, [target.id]: request.limit }));
         setData((previous) =>
           previous.sessions.some((item) => item.id === target.id)
-            ? {
-                ...previous,
-                messages: {
-                  ...previous.messages,
-                  [target.id]: mergeHistory(messages, before, previous.messages[target.id] ?? []),
-                },
-              }
+            ? reconcileMessages(previous, target.id, messages, before, pendingBefore)
             : previous,
         );
       }
@@ -175,6 +174,13 @@ function usePocketState() {
       }
     }
   }, []);
+
+  const needsHistory = sessionID ? data.needsHistory[sessionID] : false;
+  useEffect(() => {
+    const target = sessionRef.current;
+    if (needsHistory && target)
+      void loadMessages(target).catch((error: unknown) => notify(errorMessage(error), true));
+  }, [needsHistory, sessionID, loadMessages, notify]);
 
   const refresh = useCallback(async (source = clientRef.current) => {
     if (!source || source !== clientRef.current) return;
@@ -290,6 +296,8 @@ function usePocketState() {
       messageRequests.current.clear();
       loadedLimits.current.clear();
       sessionChoices.current.clear();
+      sessionListView.current = { order: [], scroll: 0, visible: 60 };
+      chatPositions.current.clear();
       setHistoryLimits({});
       setLoadingSession(undefined);
       setSessionFilters(defaultSessionFilters);
@@ -392,11 +400,16 @@ function usePocketState() {
         notify('Доступ отозван. Подключитесь заново.', true);
         return;
       }
+      const upstreamRecovered =
+        event.type === 'occ.upstream' && event.properties.online === true && !upstreamOnline;
       if (event.type === 'occ.upstream' || event.type === 'occ.connected') {
         upstreamOnline = event.properties.online === true;
         setStatus(upstreamOnline ? 'live' : 'reconnecting');
       }
-      if (['occ.resync', 'server.connected', 'global.disposed', 'occ.connected'].includes(event.type)) {
+      if (
+        upstreamRecovered ||
+        ['occ.resync', 'server.connected', 'global.disposed', 'occ.connected'].includes(event.type)
+      ) {
         sync();
         hydrate();
       }
@@ -503,6 +516,7 @@ function usePocketState() {
     if (!client || !sessionID || !session?.directory) return;
     const controller = new AbortController();
     let loading = false;
+    const before = dataRef.current.sessions;
     const loadChildren = async () => {
       if (loading) return;
       loading = true;
@@ -514,7 +528,11 @@ function usePocketState() {
         if (controller.signal.aborted || !Array.isArray(children)) return;
         setData((previous) => ({
           ...previous,
-          sessions: [...new Map([...previous.sessions, ...children].map((item) => [item.id, item])).values()],
+          sessions: mergeSnapshot(
+            [...before.filter((item) => item.parentID !== sessionID), ...children],
+            before,
+            previous.sessions,
+          ),
         }));
       } catch (error) {
         if (!controller.signal.aborted) captureDiagnostic(error, { kind: 'request' });
@@ -672,6 +690,8 @@ function usePocketState() {
       loadedLimits.current.clear();
       sessionChoices.current.clear();
       setHistoryLimits({});
+      sessionListView.current = { order: [], scroll: 0, visible: 60 };
+      chatPositions.current.clear();
       setLoadingSession(undefined);
       refreshTask.current = undefined;
       clientRef.current = undefined;
@@ -772,6 +792,8 @@ function usePocketState() {
     connections,
     client,
     data,
+    sessionListView,
+    chatPositions,
     drafts,
     sessionFilters,
     setSessionFilters,

@@ -42,6 +42,38 @@ describe('connection boundaries', () => {
 });
 
 describe('SSE framing', () => {
+  it('does not acknowledge an unfinished frame before a connection drops', () => {
+    const parser = new SseDecoder();
+    parser.feed('id: delivered\ndata: first\n\n');
+    expect(parser.feed('id: unfinished\ndata: second\n')).toEqual([]);
+    expect(parser.lastEventID).toBe('delivered');
+    expect(parser.feed('\n')).toMatchObject([{ id: 'unfinished', data: 'second' }]);
+    expect(parser.lastEventID).toBe('unfinished');
+  });
+  it('accepts bare CR, CRLF split across chunks and cursor-only reset frames', () => {
+    const parser = new SseDecoder();
+    const frames = [
+      ...parser.feed('id: first\rdata: one\r\r'),
+      ...parser.feed('\ndata: two\r\n\r'),
+      ...parser.feed('\nid:\r\ndata: three\r\n\r\n'),
+    ];
+    expect(frames.map(({ id, data }) => ({ id, data }))).toEqual([
+      { id: 'first', data: 'one' },
+      { id: 'first', data: 'two' },
+      { id: '', data: 'three' },
+    ]);
+    expect(parser.lastEventID).toBe('');
+    expect(parser.feed('id: last\n\n')).toEqual([]);
+    expect(parser.lastEventID).toBe('last');
+  });
+  it('bounds accumulated multiline events and allows a new event after dispatch', () => {
+    const parser = new SseDecoder();
+    const line = `data: ${'x'.repeat(1024 * 1024)}\n`;
+    for (let index = 0; index < 7; index++) parser.feed(line);
+    expect(() => parser.feed(line)).toThrow('SSE event exceeds 8 MB');
+    const valid = new SseDecoder();
+    for (let index = 0; index < 10; index++) expect(valid.feed(`${line}\n`)).toHaveLength(1);
+  });
   it('handles CRLF, comments, multiline values, and UTF-8 split in any position', () => {
     const bytes = new TextEncoder().encode(
       ': heartbeat\r\nid: 7\r\nevent: message\r\ndata: {"word":"привет",\r\ndata: "ok":true}\r\n\r\n',

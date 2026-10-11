@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const APP_VERSION = '1.0.3';
+export const APP_VERSION = '1.0.4';
 export const APP_ID = 'dev.hvhbigname.occ';
 
 export function isPrivateHost(host: string): boolean {
@@ -81,19 +81,34 @@ export class SseDecoder {
   private buffer = '';
   private data: string[] = [];
   private id: string | undefined;
+  private cursor: string | undefined;
   private event: string | undefined;
   private decoder = new TextDecoder();
+  private skipLF = false;
+  private dataSize = 0;
+  get lastEventID() {
+    return this.cursor;
+  }
 
   feed(chunk: Uint8Array | string): SseMessage[] {
     this.buffer += typeof chunk === 'string' ? chunk : this.decoder.decode(chunk, { stream: true });
     const messages: SseMessage[] = [];
     let index: number;
-    while ((index = this.buffer.indexOf('\n')) >= 0) {
-      const line = this.buffer.slice(0, index).replace(/\r$/, '');
+    while (this.buffer.length) {
+      if (this.skipLF) {
+        if (this.buffer.startsWith('\n')) this.buffer = this.buffer.slice(1);
+        this.skipLF = false;
+      }
+      index = this.buffer.search(/[\r\n]/);
+      if (index < 0) break;
+      const line = this.buffer.slice(0, index);
+      this.skipLF = this.buffer[index] === '\r';
       this.buffer = this.buffer.slice(index + 1);
       if (!line) {
+        this.cursor = this.id;
         if (this.data.length) messages.push({ data: this.data.join('\n'), id: this.id, event: this.event });
         this.data = [];
+        this.dataSize = 0;
         this.event = undefined;
         continue;
       }
@@ -101,11 +116,15 @@ export class SseDecoder {
       const colon = line.indexOf(':');
       const key = colon < 0 ? line : line.slice(0, colon);
       const value = colon < 0 ? '' : line.slice(colon + 1).replace(/^ /, '');
-      if (key === 'data') this.data.push(value);
+      if (key === 'data') {
+        this.dataSize += value.length + 1;
+        if (this.dataSize > 8 * 1024 * 1024) throw new Error('SSE event exceeds 8 MB');
+        this.data.push(value);
+      }
       if (key === 'id' && !value.includes('\0')) this.id = value;
       if (key === 'event') this.event = value;
     }
-    if (this.buffer.length > 8 * 1024 * 1024) throw new Error('SSE event exceeds 8 MB');
+    if (this.buffer.length + this.dataSize > 8 * 1024 * 1024) throw new Error('SSE event exceeds 8 MB');
     return messages;
   }
 }

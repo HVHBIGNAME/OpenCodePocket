@@ -196,11 +196,20 @@ export class OpenCodeClient {
       this.connection.mode === 'bridge'
         ? this.url('/occ/events', undefined, true)
         : this.url('/global/event');
+    const seen = new Set<string>();
+    const deliver = (event: ServerEvent) => {
+      if (event.id) {
+        if (seen.has(event.id)) return;
+        seen.add(event.id);
+        if (seen.size > 2048) seen.delete(seen.values().next().value!);
+      }
+      onEvent(event);
+    };
     if (isNative) {
       const events = await PocketNative.addListener('serverEvent', ({ data }) => {
         try {
           const event = decodeEvent(JSON.parse(data));
-          if (event) onEvent(event);
+          if (event) deliver(event);
         } catch (error) {
           console.error('Invalid server event', errorMessage(error));
         }
@@ -277,11 +286,12 @@ export class OpenCodeClient {
                 lastID = frame.id ?? lastID;
                 try {
                   const event = decodeEvent(JSON.parse(frame.data));
-                  if (event) onEvent(event);
+                  if (event) deliver(event);
                 } catch (error) {
                   if (!(error instanceof SyntaxError)) throw error;
                 }
               }
+              if (parser.lastEventID !== undefined) lastID = parser.lastEventID;
             }
           } finally {
             await reader.cancel().catch(() => undefined);

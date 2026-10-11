@@ -308,13 +308,19 @@ export async function createBridge(options: BridgeOptions) {
 
   server.requestTimeout = 150_000;
   server.headersTimeout = 15_000;
-  await new Promise<void>((resolve, reject) => {
-    server.once('error', reject);
-    server.listen(options.port ?? 4141, options.hostname ?? '127.0.0.1', () => {
-      server.removeListener('error', reject);
-      resolve();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      server.once('error', reject);
+      server.listen(options.port ?? 4141, options.hostname ?? '127.0.0.1', () => {
+        server.removeListener('error', reject);
+        resolve();
+      });
     });
-  });
+  } catch (error) {
+    relay.close();
+    await reports.close();
+    throw error;
+  }
   const address = server.address();
   if (!address || typeof address === 'string') throw new Error('Bridge did not bind a TCP port');
   const localUrl = `http://127.0.0.1:${address.port}`;

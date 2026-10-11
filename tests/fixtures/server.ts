@@ -166,8 +166,8 @@ function send(response: ServerResponse, value: unknown, status = 200) {
   response.writeHead(status, { 'Content-Type': 'application/json' });
   response.end(JSON.stringify(value));
 }
-function emit(type: string, properties: Record<string, unknown>) {
-  const data = { directory, payload: { id: `evt_${++events}`, type, properties } };
+function emit(type: string, properties: Record<string, unknown>, id = `evt_${++events}`) {
+  const data = { directory, payload: { id, type, properties } };
   for (const response of output) response.write(`data: ${JSON.stringify(data)}\n\n`);
 }
 function merge(target: Record<string, unknown>, patch: Record<string, unknown>): Record<string, unknown> {
@@ -288,6 +288,10 @@ const server = createServer((request, response) => {
     if (url.pathname === '/__test/event') {
       const type = String(payload.type);
       const properties = payload.properties as Record<string, unknown>;
+      if (payload.emitOnly === true) {
+        emit(type, properties, typeof payload.id === 'string' ? payload.id : undefined);
+        return send(response, true);
+      }
       if (type === 'session.created' || type === 'session.updated') {
         const info = properties.info as Session;
         sessions = [...sessions.filter((session) => session.id !== info.id), info];
@@ -321,7 +325,7 @@ const server = createServer((request, response) => {
           return send(response, { error: 'Invalid text delta' }, 400);
         part.text += properties.delta;
       }
-      emit(type, properties);
+      if (payload.silent !== true) emit(type, properties);
       return send(response, true);
     }
     if (url.pathname === '/global/health') return send(response, { healthy: true, version: '1.18.34' });
