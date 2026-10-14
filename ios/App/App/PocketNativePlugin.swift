@@ -112,6 +112,7 @@ public class PocketNativePlugin: CAPPlugin, CAPBridgedPlugin, UNUserNotification
         DispatchQueue.main.async {
             guard let webView = self.bridge?.webView else { call.resolve(["enabled": false]); return }
             if self.glass == nil { self.glass = PocketGlassBackground(frame: webView.frame) }
+            self.glass?.onAction = { [weak self] id in self?.notifyListeners("glassAction", data: ["id": id]) }
             let enabled = self.glass?.configure(webView: webView, enabled: call.getBool("enabled") ?? false, dark: call.getBool("dark") ?? true) ?? false
             call.resolve(["enabled": enabled])
         }
@@ -119,8 +120,8 @@ public class PocketNativePlugin: CAPPlugin, CAPBridgedPlugin, UNUserNotification
 
     @objc func setGlassRegions(_ call: CAPPluginCall) {
         DispatchQueue.main.async {
-            self.glass?.update(regions: call.getArray("regions", JSObject.self) ?? [], viewportWidth: call.getDouble("viewportWidth") ?? 0)
-            call.resolve()
+            let ids = self.glass?.update(regions: call.getArray("regions", JSObject.self) ?? [], viewportWidth: call.getDouble("viewportWidth") ?? 0) ?? []
+            call.resolve(["ids": ids])
         }
     }
 
@@ -221,6 +222,7 @@ public class PocketNativePlugin: CAPPlugin, CAPBridgedPlugin, UNUserNotification
     }
 
     deinit {
+        glass?.disable()
         speech?.cancel()
         stream?.stop()
         pushTimeout?.cancel()

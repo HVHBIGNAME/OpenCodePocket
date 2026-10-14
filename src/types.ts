@@ -22,6 +22,8 @@ export type Model = {
   name: string;
   providerID?: string;
   family?: string;
+  status?: string;
+  release_date?: string;
   limit?: { context: number; output: number };
   cost?: { input: number; output: number };
   capabilities?: { reasoning?: boolean; attachment?: boolean; toolcall?: boolean };

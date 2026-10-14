@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState, type ButtonHTMLAttributes, type ReactNode } from 'react';
-import { ArrowUpRight, Check, Copy, LoaderCircle, X } from 'lucide-react';
+import { ArrowUpRight, Check, ChevronDown, Copy, LoaderCircle, X } from 'lucide-react';
+import { Keyboard } from '@capacitor/keyboard';
+import { isNative } from '../lib/native';
+import { captureDiagnostic } from '../lib/diagnostics';
 import clsx from 'clsx';
 import { dragFeedback, useSwipe } from '../lib/gestures';
 
@@ -48,12 +51,14 @@ export function Modal({
   children,
   onClose,
   wide = false,
+  className,
 }: {
   title: string;
   subtitle?: string;
   children: ReactNode;
   onClose: () => void;
   wide?: boolean;
+  className?: string;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   const closing = useRef(false);
@@ -97,12 +102,31 @@ export function Modal({
   useEffect(() => {
     const dialog = ref.current;
     dialog?.showModal();
-    return () => dialog?.close();
+    const observer = new ResizeObserver(() => {
+      const field = document.activeElement;
+      if (
+        !(field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement) ||
+        !dialog?.contains(field)
+      )
+        return;
+      const scroller = field.closest<HTMLElement>('.request-body');
+      if (!scroller || !scroller.clientHeight) return;
+      const area = scroller.getBoundingClientRect();
+      const rect = field.getBoundingClientRect();
+      const gap = Math.min(4, Math.max(0, (area.height - rect.height) / 2));
+      if (rect.bottom > area.bottom - gap) scroller.scrollTop += rect.bottom - area.bottom + gap;
+      else if (rect.top < area.top + gap) scroller.scrollTop += rect.top - area.top - gap;
+    });
+    if (dialog) observer.observe(dialog);
+    return () => {
+      observer.disconnect();
+      dialog?.close();
+    };
   }, []);
   return (
     <dialog
       ref={ref}
-      className={clsx('modal', wide && 'modal-wide')}
+      className={clsx('modal', wide && 'modal-wide', className)}
       aria-label={title}
       onCancel={(event) => {
         event.preventDefault();
@@ -134,6 +158,22 @@ export function Modal({
         {children}
       </div>
     </dialog>
+  );
+}
+
+export function KeyboardDismiss() {
+  return (
+    <IconButton
+      label="Скрыть клавиатуру"
+      className="keyboard-dismiss"
+      onClick={() => {
+        if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+        if (isNative)
+          void Keyboard.hide().catch((error: unknown) => captureDiagnostic(error, { kind: 'action' }));
+      }}
+    >
+      <ChevronDown size={20} />
+    </IconButton>
   );
 }
 

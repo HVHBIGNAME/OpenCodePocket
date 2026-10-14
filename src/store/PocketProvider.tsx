@@ -18,6 +18,7 @@ import { applyEvent, emptyData, type LiveData } from './reducer';
 import { mergeSnapshot } from './history';
 import { reconcileMessages } from './message-events';
 import { DraftStore } from './drafts';
+import { FavoritesStore, useFavorites } from './favorites';
 import { defaultSessionFilters } from '../lib/session-search';
 import { isGenerationCancelled } from '../lib/session-errors';
 import { NotificationGate } from '../../shared/notification-policy';
@@ -56,6 +57,7 @@ function usePocketState() {
   const [connections, setConnections] = useState<Connection[]>([]);
   const [client, setClient] = useState<OpenCodeClient>();
   const clientRef = useRef<OpenCodeClient | undefined>(undefined);
+  const isCurrentClient = useCallback((source: OpenCodeClient) => source === clientRef.current, []);
   const savedRef = useRef<Connection[]>([]);
   const [ready, setReady] = useState(false);
   const [data, setData] = useState<LiveData>(emptyData);
@@ -108,6 +110,19 @@ function usePocketState() {
   useEffect(() => setDiagnosticScreen(screen), [screen]);
 
   const notify = useCallback((text: string, error = false) => setToast({ text, error }), []);
+  const favorites = useMemo(() => new FavoritesStore(), []);
+  const favoritesError = useCallback(
+    (error: unknown) => notify(`Избранное: ${errorMessage(error)}`, true),
+    [notify],
+  );
+  const favoriteState = useFavorites(favorites, client?.connection.id, favoritesError);
+  const toggleFavorite = useCallback(
+    async (target: Session) => {
+      const id = clientRef.current?.connection.id;
+      if (id && !target.parentID) await favorites.toggle(id, target.id);
+    },
+    [favorites],
+  );
   const drafts = useMemo(
     () => new DraftStore((error) => notify(`Черновик: ${errorMessage(error)}`, true)),
     [notify],
@@ -688,36 +703,40 @@ function usePocketState() {
     [preferences],
   );
 
-  const forget = useCallback(async (id: string) => {
-    const saved = savedRef.current.filter((item) => item.id !== id);
-    await vaultWrite('occ.connections', saved);
-    savedRef.current = saved;
-    setConnections(saved);
-    if (clientRef.current?.connection.id === id) {
-      connectionSequence.current++;
-      for (const request of messageRequests.current.values()) request.controller.abort();
-      messageRequests.current.clear();
-      loadedLimits.current.clear();
-      sessionChoices.current.clear();
-      setHistoryLimits({});
-      sessionListView.current = { order: [], scroll: 0, visible: 60 };
-      chatPositions.current.clear();
-      setLoadingSession(undefined);
-      refreshTask.current = undefined;
-      clientRef.current = undefined;
-      setClient(undefined);
-      setStatus('offline');
-      setData(emptyData());
-      setProjects([]);
-      setProviders({ all: [], connected: [], default: {} });
-      setAgents([]);
-      setConfig({});
-      setModel(undefined);
-      setBridgeInfo(undefined);
-      setSessionID(undefined);
-      setScreen('sessions');
-    }
-  }, []);
+  const forget = useCallback(
+    async (id: string) => {
+      const saved = savedRef.current.filter((item) => item.id !== id);
+      await vaultWrite('occ.connections', saved);
+      await favorites.remove(id);
+      savedRef.current = saved;
+      setConnections(saved);
+      if (clientRef.current?.connection.id === id) {
+        connectionSequence.current++;
+        for (const request of messageRequests.current.values()) request.controller.abort();
+        messageRequests.current.clear();
+        loadedLimits.current.clear();
+        sessionChoices.current.clear();
+        setHistoryLimits({});
+        sessionListView.current = { order: [], scroll: 0, visible: 60 };
+        chatPositions.current.clear();
+        setLoadingSession(undefined);
+        refreshTask.current = undefined;
+        clientRef.current = undefined;
+        setClient(undefined);
+        setStatus('offline');
+        setData(emptyData());
+        setProjects([]);
+        setProviders({ all: [], connected: [], default: {} });
+        setAgents([]);
+        setConfig({});
+        setModel(undefined);
+        setBridgeInfo(undefined);
+        setSessionID(undefined);
+        setScreen('sessions');
+      }
+    },
+    [favorites],
+  );
 
   const saveConfig = useCallback(
     async (patch: Partial<Config>) => {
@@ -801,10 +820,13 @@ function usePocketState() {
     ready,
     connections,
     client,
+    isCurrentClient,
     data,
     sessionListView,
     chatPositions,
     drafts,
+    favoriteState,
+    toggleFavorite,
     sessionFilters,
     setSessionFilters,
     historyLimits,

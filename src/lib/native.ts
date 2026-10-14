@@ -15,7 +15,18 @@ export type AppearanceCapabilities = {
   reduceMotion: boolean;
   lowPower: boolean;
 };
-export type GlassRegion = { id: string; x: number; y: number; width: number; height: number; radius: number };
+export type GlassRegion = {
+  id: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  title: string;
+  label: string;
+  disabled: boolean;
+  fontSize: number;
+  foreground: number[];
+};
 export type KeyboardFrame = {
   viewportHeight: number;
   viewportWidth: number;
@@ -44,7 +55,8 @@ interface PocketNativePlugin {
   registerPush(): Promise<{ token: string }>;
   appearanceCapabilities(): Promise<AppearanceCapabilities>;
   setGlassAppearance(options: { enabled: boolean; dark: boolean }): Promise<{ enabled: boolean }>;
-  setGlassRegions(options: { viewportWidth: number; regions: GlassRegion[] }): Promise<void>;
+  setGlassRegions(options: { viewportWidth: number; regions: GlassRegion[] }): Promise<{ ids: string[] }>;
+  addListener(name: 'glassAction', listener: (event: { id: string }) => void): Promise<PluginListenerHandle>;
   addListener(
     name: 'appearanceAccessibility',
     listener: (event: AppearanceCapabilities) => void,

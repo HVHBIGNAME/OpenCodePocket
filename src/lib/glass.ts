@@ -1,18 +1,18 @@
 import { isNative, platform, PocketNative, type AppearanceCapabilities, type GlassRegion } from './native';
-import { isIPhone } from '../themes/loader';
 import { captureDiagnostic } from './diagnostics';
 
-export function glassRenderer(enabled: boolean, nativeGlass: boolean, reduced: boolean) {
-  return !enabled ? 'none' : reduced ? 'opaque' : nativeGlass ? 'native' : 'css';
+export function glassRenderer(enabled: boolean, supported: boolean, reduced: boolean) {
+  return enabled && supported && !reduced ? 'native' : 'none';
 }
 
-export function installGlassHandling() {
-  if (!isIPhone) return;
+const selector = 'button[data-pocket-glass="connection"], button[data-pocket-glass="model"]';
+
+export function installGlassHandling(native = isNative && platform === 'ios', api = PocketNative) {
   const root = document.documentElement;
-  const native = isNative && platform === 'ios';
+  root.dataset.glassRenderer = 'none';
+  if (!native) return;
   const contrast = matchMedia('(prefers-contrast: more)');
   const transparency = matchMedia('(prefers-reduced-transparency: reduce)');
-  const motion = matchMedia('(prefers-reduced-motion: reduce)');
   let capabilities: AppearanceCapabilities = {
     nativeGlass: false,
     reduceTransparency: false,
@@ -21,170 +21,211 @@ export function installGlassHandling() {
   };
   let disposed = false;
   let frame = 0;
-  let sequence = 0;
+  let revision = 0;
+  let geometry = 0;
   let serialized = '';
   let queue = Promise.resolve();
-  let targets: HTMLElement[] = [];
-  let keyboardAnimationUntil = 0;
-
+  let targets: HTMLButtonElement[] = [];
+  let animationUntil = 0;
+  const hidden = new Map<HTMLButtonElement, { tabindex: string | null; aria: string | null }>();
+  const restore = (element: HTMLButtonElement) => {
+    const previous = hidden.get(element);
+    if (!previous) return;
+    delete element.dataset.nativeControl;
+    for (const [name, value] of [
+      ['tabindex', previous.tabindex],
+      ['aria-hidden', previous.aria],
+    ] as const) {
+      if (value === null) element.removeAttribute(name);
+      else element.setAttribute(name, value);
+    }
+    hidden.delete(element);
+  };
+  const restoreAll = () => {
+    for (const element of hidden.keys()) restore(element);
+  };
+  const fail = (error: unknown) => {
+    restoreAll();
+    serialized = '';
+    captureDiagnostic(error, { kind: 'action' });
+  };
   const measure = () => {
     if (disposed || root.dataset.glassRenderer !== 'native') return;
-    if (performance.now() < keyboardAnimationUntil) frame = requestAnimationFrame(measure);
+    if (performance.now() < animationUntil) frame = requestAnimationFrame(measure);
     const viewport = window.visualViewport;
-    const regions: GlassRegion[] =
-      viewport && Math.abs(viewport.scale - 1) > 0.01
-        ? []
-        : targets.flatMap((element) => {
-            const rect = element.getBoundingClientRect();
-            if (
-              !element.isConnected ||
-              rect.width <= 0 ||
-              rect.height <= 0 ||
-              rect.bottom < 0 ||
-              rect.top > innerHeight
-            )
-              return [];
-            return [
-              {
-                id: element.dataset.pocketGlass!,
-                x: rect.x - (viewport?.offsetLeft ?? 0),
-                y: rect.y - (viewport?.offsetTop ?? 0),
-                width: rect.width,
-                height: rect.height,
-                radius: parseFloat(getComputedStyle(element).borderTopLeftRadius) || 24,
-              },
-            ];
-          });
-    const options = {
-      viewportWidth: innerWidth,
-      regions: regions.map((region) => ({
-        ...region,
-        x: Math.round(region.x),
-        y: Math.round(region.y),
-        width: Math.round(region.width),
-        height: Math.round(region.height),
-      })),
-    };
+    const blocked =
+      Boolean(document.querySelector('dialog[open]')) || (viewport && Math.abs(viewport.scale - 1) > 0.01);
+    if (blocked) restoreAll();
+    const regions: GlassRegion[] = blocked
+      ? []
+      : targets.flatMap((element) => {
+          const rect = element.getBoundingClientRect();
+          const style = getComputedStyle(element);
+          if (
+            !element.isConnected ||
+            rect.width <= 0 ||
+            rect.height <= 0 ||
+            rect.top < 0 ||
+            rect.bottom > innerHeight ||
+            style.visibility === 'hidden' ||
+            element.closest('[hidden], [inert]')
+          )
+            return [];
+          const rgb =
+            style.color
+              .match(/[\d.]+/g)
+              ?.slice(0, 3)
+              .map((value) => Number(value) / 255) ?? [];
+          return [
+            {
+              id: element.dataset.pocketGlass!,
+              x: rect.x - (viewport?.offsetLeft ?? 0),
+              y: rect.y - (viewport?.offsetTop ?? 0),
+              width: rect.width,
+              height: rect.height,
+              title: element.textContent?.trim() ?? '',
+              label: element.getAttribute('aria-label') ?? '',
+              disabled: element.disabled,
+              fontSize: parseFloat(style.fontSize),
+              foreground: rgb,
+            },
+          ];
+        });
+    const options = { viewportWidth: innerWidth, regions };
     const next = JSON.stringify(options);
     if (next === serialized) return;
     serialized = next;
+    const request = ++geometry;
     queue = queue
       .then(async () => {
-        if (!disposed && root.dataset.glassRenderer === 'native') await PocketNative.setGlassRegions(options);
+        if (disposed || request !== geometry || root.dataset.glassRenderer !== 'native') return;
+        const result = await api.setGlassRegions(options);
+        if (disposed || request !== geometry || root.dataset.glassRenderer !== 'native') return;
+        restoreAll();
+        for (const element of targets) {
+          if (!result.ids.includes(element.dataset.pocketGlass!)) continue;
+          hidden.set(element, {
+            tabindex: element.getAttribute('tabindex'),
+            aria: element.getAttribute('aria-hidden'),
+          });
+          element.dataset.nativeControl = 'true';
+          element.tabIndex = -1;
+          element.setAttribute('aria-hidden', 'true');
+        }
       })
-      .catch((error: unknown) => {
-        serialized = '';
-        captureDiagnostic(error, { kind: 'action' });
-      });
+      .catch(fail);
   };
   const schedule = () => {
     cancelAnimationFrame(frame);
     frame = requestAnimationFrame(measure);
   };
-  const keyboardFrame = (event: Event) => {
-    const duration = (event as CustomEvent<{ duration?: number }>).detail?.duration ?? 0;
-    keyboardAnimationUntil = performance.now() + Math.min(1000, Math.max(0, duration)) + 50;
-    schedule();
-  };
   const resize = new ResizeObserver(schedule);
   const discover = () => {
+    restoreAll();
     resize.disconnect();
-    targets = [...document.querySelectorAll<HTMLElement>('[data-pocket-glass]')].slice(0, 4);
-    for (const target of targets) resize.observe(target);
+    targets = [...document.querySelectorAll<HTMLButtonElement>(selector)].slice(0, 2);
+    for (const element of targets) resize.observe(element);
+    serialized = '';
     schedule();
   };
   const reconcile = () => {
-    const revision = ++sequence;
-    const enabled = root.dataset.theme === 'liquid-glass';
+    const request = ++revision;
+    geometry++;
+    restoreAll();
     const reduced =
       root.dataset.reduceTransparency === 'true' ||
       capabilities.reduceTransparency ||
       capabilities.lowPower ||
       contrast.matches ||
       transparency.matches;
-    const renderer = glassRenderer(enabled, native && capabilities.nativeGlass, reduced);
-    root.dataset.glassMotion = String(
-      !capabilities.reduceMotion && !motion.matches && !capabilities.lowPower,
-    );
-    root.dataset.glassRenderer = renderer === 'native' ? 'css' : renderer;
-    serialized = '';
-    if (native)
-      queue = queue
-        .then(async () => {
-          if (disposed || revision !== sequence) return;
-          const result = await PocketNative.setGlassAppearance({
-            enabled: renderer === 'native',
-            dark: root.dataset.colorMode === 'dark',
-          });
-          if (!disposed && revision === sequence) {
-            root.dataset.glassRenderer =
-              renderer === 'native' && result.enabled ? 'native' : renderer === 'native' ? 'css' : renderer;
-            discover();
-          }
-        })
-        .catch((error: unknown) => {
-          captureDiagnostic(error, { kind: 'action' });
+    const renderer = glassRenderer(root.dataset.nativeGlass === 'true', capabilities.nativeGlass, reduced);
+    root.dataset.glassRenderer = 'none';
+    queue = queue
+      .then(async () => {
+        if (disposed || request !== revision) return;
+        const result = await api.setGlassAppearance({
+          enabled: renderer === 'native',
+          dark: root.dataset.colorMode === 'dark',
         });
-    discover();
+        if (!disposed && request === revision) {
+          root.dataset.glassRenderer = result.enabled ? renderer : 'none';
+          discover();
+        }
+      })
+      .catch(fail);
   };
   const appearance = new MutationObserver(reconcile);
   appearance.observe(root, {
     attributes: true,
-    attributeFilter: ['data-theme', 'data-color-mode', 'data-reduce-transparency'],
+    attributeFilter: ['data-native-glass', 'data-color-mode', 'data-theme', 'data-reduce-transparency'],
   });
   const content = new MutationObserver((records) => {
     if (
-      records.some((record) =>
-        [...record.addedNodes, ...record.removedNodes].some(
-          (node) =>
-            node instanceof Element &&
-            (node.matches('[data-pocket-glass]') || node.querySelector('[data-pocket-glass]')),
-        ),
+      records.some(
+        (record) =>
+          record.type === 'childList' &&
+          [...record.addedNodes, ...record.removedNodes].some(
+            (node) => node instanceof Element && (node.matches(selector) || node.querySelector(selector)),
+          ),
       )
     )
       discover();
+    else schedule();
   });
-  content.observe(document.body, { subtree: true, childList: true });
-  const accessibility = native
-    ? PocketNative.addListener('appearanceAccessibility', (state) => {
+  content.observe(document.body, {
+    subtree: true,
+    childList: true,
+    characterData: true,
+    attributes: true,
+    attributeFilter: ['disabled', 'aria-label', 'open', 'hidden', 'class', 'style'],
+  });
+  const keyboardFrame = (event: Event) => {
+    const duration = (event as CustomEvent<{ duration?: number }>).detail?.duration ?? 0;
+    animationUntil = performance.now() + Math.min(1000, Math.max(0, duration)) + 50;
+    schedule();
+  };
+  const handles = [
+    api.addListener('appearanceAccessibility', (state) => {
+      capabilities = state;
+      reconcile();
+    }),
+    api.addListener('glassAction', ({ id }) => {
+      if (document.querySelector('dialog[open]') || root.dataset.glassRenderer !== 'native') return;
+      const element = targets.find((target) => target.dataset.pocketGlass === id);
+      if (element?.isConnected && !element.disabled && hidden.has(element)) element.click();
+    }),
+  ];
+  void api
+    .appearanceCapabilities()
+    .then((state) => {
+      if (!disposed) {
         capabilities = state;
         reconcile();
-      })
-    : undefined;
-  if (native)
-    void PocketNative.appearanceCapabilities()
-      .then((state) => {
-        if (!disposed) {
-          capabilities = state;
-          reconcile();
-        }
-      })
-      .catch((error: unknown) => captureDiagnostic(error, { kind: 'action' }));
-  for (const media of [contrast, transparency, motion]) media.addEventListener('change', reconcile);
+      }
+    })
+    .catch(fail);
+  for (const media of [contrast, transparency]) media.addEventListener('change', reconcile);
   window.addEventListener('resize', schedule);
+  window.addEventListener('scroll', schedule, { passive: true, capture: true });
   window.addEventListener('pocket:keyboard-frame', keyboardFrame);
-  window.addEventListener('scroll', schedule, { passive: true });
   window.visualViewport?.addEventListener('resize', schedule);
   window.visualViewport?.addEventListener('scroll', schedule);
   reconcile();
   return () => {
     disposed = true;
+    restoreAll();
+    root.dataset.glassRenderer = 'none';
     cancelAnimationFrame(frame);
     appearance.disconnect();
     content.disconnect();
     resize.disconnect();
-    for (const media of [contrast, transparency, motion]) media.removeEventListener('change', reconcile);
+    for (const media of [contrast, transparency]) media.removeEventListener('change', reconcile);
     window.removeEventListener('resize', schedule);
+    window.removeEventListener('scroll', schedule, true);
     window.removeEventListener('pocket:keyboard-frame', keyboardFrame);
-    window.removeEventListener('scroll', schedule);
     window.visualViewport?.removeEventListener('resize', schedule);
     window.visualViewport?.removeEventListener('scroll', schedule);
-    void accessibility
-      ?.then((handle) => handle.remove())
-      .catch((error: unknown) => captureDiagnostic(error, { kind: 'action' }));
-    if (native)
-      void queue
-        .then(() => PocketNative.setGlassAppearance({ enabled: false, dark: true }))
-        .catch((error: unknown) => captureDiagnostic(error, { kind: 'action' }));
+    for (const handle of handles) void handle.then((value) => value.remove()).catch(fail);
+    void queue.then(() => api.setGlassAppearance({ enabled: false, dark: true })).catch(fail);
   };
 }

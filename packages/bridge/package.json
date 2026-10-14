@@ -1,6 +1,6 @@
 {
   "name": "@hvhbigname/occ-bridge",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "description": "Pair your OpenCode sessions with OpenCode Pocket using a QR code.",
   "type": "module",
   "license": "MIT",

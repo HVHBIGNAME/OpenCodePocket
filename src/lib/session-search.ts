@@ -1,17 +1,18 @@
 import type { LiveData } from '../store/reducer';
 import type { MessageEntry, Session } from '../types';
+import { sessionActivity } from './session-tree';
 
 export type SessionFilters = {
   search: string;
   filter: 'all' | 'busy' | 'waiting' | 'archived';
   project: string;
-  children: boolean;
+  favoritesOnly: boolean;
 };
 export const defaultSessionFilters: SessionFilters = {
   search: '',
   filter: 'all',
   project: '',
-  children: false,
+  favoritesOnly: false,
 };
 
 export function matchesSearch(text: string, query: string) {
@@ -27,29 +28,21 @@ export function matchesSearch(text: string, query: string) {
 export function filterSessions(
   data: Pick<LiveData, 'sessions' | 'statuses' | 'questions' | 'permissions'>,
   filters: SessionFilters,
+  favorites: ReadonlySet<string> = new Set(),
 ) {
-  const waiting = new Set([...data.questions, ...data.permissions].map((item) => item.sessionID));
+  const { waiting, busy } = sessionActivity(data);
   return data.sessions
     .filter((item) => {
       if (Boolean(item.time.archived) !== (filters.filter === 'archived')) return false;
-      if (item.parentID && !filters.children) return false;
+      if (item.parentID) return false;
+      if (filters.favoritesOnly && !favorites.has(item.id)) return false;
       if (filters.project && item.directory !== filters.project) return false;
       if (!matchesSearch(`${item.title} ${item.directory}`, filters.search)) return false;
-      if (filters.filter === 'busy') return ['busy', 'retry'].includes(data.statuses[item.id]?.type ?? '');
+      if (filters.filter === 'busy') return busy.has(item.id);
       if (filters.filter === 'waiting') return waiting.has(item.id);
       return true;
     })
     .sort((a, b) => b.time.updated - a.time.updated || a.id.localeCompare(b.id));
-}
-
-export function groupSessions(sessions: Session[]) {
-  const groups = new Map<string, Session[]>();
-  for (const session of sessions) {
-    const group = groups.get(session.directory) ?? [];
-    group.push(session);
-    groups.set(session.directory, group);
-  }
-  return [...groups.entries()];
 }
 
 export function stableSessionOrder(sessions: Session[], previous: string[]): Session[] {

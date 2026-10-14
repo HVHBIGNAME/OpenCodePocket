@@ -1,4 +1,4 @@
-import { useState, type CSSProperties } from 'react';
+import { useEffect, useState, type CSSProperties } from 'react';
 import { Check, ChevronRight, LoaderCircle, Monitor, Moon, Palette, Search, Sun } from 'lucide-react';
 import {
   availableThemes,
@@ -11,6 +11,8 @@ import {
 import { usePocket } from '../store/PocketProvider';
 import { Button, Modal, Toggle } from './ui';
 import './appearance.css';
+import { isNative, platform, PocketNative, type AppearanceCapabilities } from '../lib/native';
+import { captureDiagnostic } from '../lib/diagnostics';
 
 function Swatch({ theme, mode }: { theme: Theme; mode: ColorMode }) {
   const tokens = theme.preview[mode];
@@ -40,6 +42,24 @@ export function AppearanceSettings() {
   const { perform } = usePocket();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
+  const [capabilities, setCapabilities] = useState<AppearanceCapabilities>();
+  useEffect(() => {
+    if (!isNative || platform !== 'ios') return;
+    let alive = true;
+    const receive = (state: AppearanceCapabilities) => {
+      if (alive) setCapabilities(state);
+    };
+    void PocketNative.appearanceCapabilities()
+      .then(receive)
+      .catch((error: unknown) => captureDiagnostic(error, { kind: 'action' }));
+    const handle = PocketNative.addListener('appearanceAccessibility', receive);
+    return () => {
+      alive = false;
+      void handle
+        .then((value) => value.remove())
+        .catch((error: unknown) => captureDiagnostic(error, { kind: 'action' }));
+    };
+  }, []);
   const selected = availableThemes.find((theme) => theme.id === appearance.theme)!;
   const matches = availableThemes.filter((theme) =>
     `${theme.name} ${theme.id}`.toLowerCase().includes(query.toLowerCase()),
@@ -52,10 +72,7 @@ export function AppearanceSettings() {
         <Palette size={20} />
         <div>
           <h2>Оформление</h2>
-          <p>
-            {themes.length} тем OpenCode
-            {availableThemes.length > themes.length ? ' + Liquid Glass для iPhone' : ''}.
-          </p>
+          <p>{themes.length} тем OpenCode .</p>
         </div>
       </div>
       <fieldset className="segmented appearance-modes" aria-label="Цветовой режим">
@@ -92,11 +109,19 @@ export function AppearanceSettings() {
         </span>
         <ChevronRight size={18} />
       </button>
-      {selected.exclusive === 'iphone' && (
+      {capabilities?.nativeGlass && (
         <>
-          <p className="form-hint glass-description">
-            Системное стекло панелей на iOS 26+. На ранних iOS и в браузере — прозрачное оформление WebView.
-          </p>
+          <Toggle
+            checked={Boolean(appearance.nativeGlass)}
+            onChange={(nativeGlass) => change({ nativeGlass })}
+            label="Apple Liquid Glass"
+            description="Нативные кнопки подключения и выбора модели. Цвета выбранной темы сохраняются."
+          />
+          {(capabilities.reduceTransparency || capabilities.lowPower) && (
+            <p className="form-hint">
+              Стекло приостановлено системным уменьшением прозрачности или энергосбережением.
+            </p>
+          )}
           <Toggle
             checked={Boolean(appearance.reduceTransparency)}
             onChange={(reduceTransparency) => change({ reduceTransparency })}
@@ -108,7 +133,7 @@ export function AppearanceSettings() {
       {open && (
         <Modal
           title="Темы оформления"
-          subtitle={`${themes.length} оригинальных тем OpenCode${availableThemes.length > themes.length ? ' · эксклюзив iPhone' : ''}`}
+          subtitle={`${themes.length} оригинальных тем OpenCode`}
           onClose={() => setOpen(false)}
         >
           <label className="search-field">

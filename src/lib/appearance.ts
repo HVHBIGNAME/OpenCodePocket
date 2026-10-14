@@ -13,6 +13,7 @@ export type Appearance = {
   scheme: ColorScheme;
   mode: ColorMode;
   reduceTransparency?: boolean;
+  nativeGlass?: boolean;
   pending?: string;
 };
 export const APPEARANCE_KEY = 'occ.appearance';
@@ -36,6 +37,9 @@ export function parseAppearance(value: unknown, systemDark: boolean): Appearance
     scheme,
     mode: scheme === 'system' ? (systemDark ? 'dark' : 'light') : scheme,
     ...(saved.reduceTransparency === true ? { reduceTransparency: true } : {}),
+    ...(saved.nativeGlass === true || (saved.theme === 'liquid-glass' && saved.nativeGlass !== false)
+      ? { nativeGlass: true }
+      : {}),
   };
 }
 
@@ -60,6 +64,7 @@ function apply(appearance: Appearance, theme: ThemePalette) {
   root.dataset.theme = theme.id;
   root.dataset.colorMode = appearance.mode;
   root.dataset.reduceTransparency = String(Boolean(appearance.reduceTransparency));
+  root.dataset.nativeGlass = String(Boolean(appearance.nativeGlass));
   root.style.colorScheme = appearance.mode;
   document.querySelector('meta[name="theme-color"]')?.setAttribute('content', tokens['background-base']!);
   for (const listener of listeners) listener();
@@ -85,7 +90,12 @@ async function change(next: Appearance, persist: boolean) {
   if (persist)
     localStorage.setItem(
       APPEARANCE_KEY,
-      JSON.stringify({ theme: next.theme, scheme: next.scheme, reduceTransparency: next.reduceTransparency }),
+      JSON.stringify({
+        theme: next.theme,
+        scheme: next.scheme,
+        reduceTransparency: next.reduceTransparency,
+        nativeGlass: next.nativeGlass,
+      }),
     );
   const request = ++sequence;
   desired = next;
@@ -125,7 +135,9 @@ export async function initializeAppearance() {
   await restore();
 }
 
-export function setAppearance(patch: Partial<Pick<Appearance, 'theme' | 'scheme' | 'reduceTransparency'>>) {
+export function setAppearance(
+  patch: Partial<Pick<Appearance, 'theme' | 'scheme' | 'reduceTransparency' | 'nativeGlass'>>,
+) {
   const next = parseAppearance(
     { ...desired, ...patch },
     window.matchMedia('(prefers-color-scheme: dark)').matches,

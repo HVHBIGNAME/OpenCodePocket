@@ -1,21 +1,8 @@
-import { test, expect, type Page, type Locator } from '@playwright/test';
+import { test, expect, connect, type Page, type Locator } from './fixtures';
 import { mkdir } from 'node:fs/promises';
 import { randomBytes } from 'node:crypto';
 import sharp from 'sharp';
 import type { MessageEntry, Session } from '../../src/types';
-
-async function connect(page: Page) {
-  await page.request.post('http://127.0.0.1:4097/__test/reset');
-  const pair = (await (await page.request.get('http://127.0.0.1:4097/__test/pair')).json()) as {
-    link: string;
-  };
-  await page.goto('/');
-  await page.getByRole('button', { name: 'Подключить компьютер', exact: true }).click();
-  await page.getByLabel('Ссылка подключения').fill(pair.link);
-  await page.getByRole('button', { name: 'Подключиться', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Подключение: DESKTOP-1337' })).toBeVisible();
-  await expect(page.getByText('Панель управления — новая архитектура', { exact: true })).toBeVisible();
-}
 
 async function tab(page: Page, name: string) {
   for (let depth = 0; depth < 5 && (await page.locator('.chat-page').count()); depth++)
@@ -489,21 +476,25 @@ test('preserves project filters and separates archived sessions and subtasks', a
   await page.request.post('http://127.0.0.1:4097/__test/agents');
   const child = page.locator('.session-row').filter({ hasText: 'Аудит модулей' });
   await expect(child).toHaveCount(0);
-  await page.getByLabel('С подзадачами', { exact: true }).check();
-  await expect(child).toBeVisible();
-  await page.getByLabel('С подзадачами', { exact: true }).uncheck();
+  await expect(page.getByLabel('С подзадачами', { exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Фильтры сессий', exact: true }).click();
   await page.getByLabel('Фильтр по проекту').selectOption('C:/coding/emberdeck');
+  await page.getByRole('button', { name: 'Готово', exact: true }).click();
   await page.getByLabel('Поиск сессий').fill('  архитектура   ПАНЕЛЬ ');
   await expect(page.locator('.session-row')).toHaveCount(1);
   await page.locator('.session-row').click();
   await page.getByRole('button', { name: 'Назад к сессиям', exact: true }).click();
   await expect(page.getByLabel('Поиск сессий')).toHaveValue('  архитектура   ПАНЕЛЬ ');
+  await page.getByRole('button', { name: 'Фильтры сессий', exact: true }).click();
   await expect(page.getByLabel('Фильтр по проекту')).toHaveValue('C:/coding/emberdeck');
+  await page.getByRole('button', { name: 'Готово', exact: true }).click();
   await page.locator('.session-row').click();
   await page.getByRole('button', { name: 'Действия с сессией' }).click();
   await page.getByRole('button', { name: 'Архивировать сессию', exact: true }).click();
   await expect(page.locator('.session-row')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Фильтры сессий', exact: true }).click();
   await page.getByRole('button', { name: 'Архив', exact: true }).click();
+  await page.getByRole('button', { name: 'Готово', exact: true }).click();
   await expect(page.locator('.session-row')).toHaveCount(1);
   await page.getByRole('button', { name: 'Обновить сессии' }).click();
   await page.locator('.session-row').click();
@@ -1094,6 +1085,136 @@ test('keeps input scale and chat width stable across keyboard-sized viewports an
     .evaluateAll((fields) => fields.map((field) => parseFloat(getComputedStyle(field).fontSize)));
   expect(sizes.length).toBeGreaterThan(0);
   expect(sizes.every((size) => size >= 16)).toBe(true);
+});
+
+test('keeps favorites stable and opens multiple nested agents only inside the parent', async ({ page }) => {
+  await connect(page);
+  await expect(page.locator('.session-group')).toHaveCount(0);
+  const titles = await page.locator('.session-feed > .session-row .session-title').allTextContents();
+  expect(titles.slice(0, 3)).toEqual([
+    'Панель управления — новая архитектура',
+    'OAuth и управление сессиями',
+    'Оптимизация генерации чанков',
+  ]);
+  const row = page.locator('.session-row').filter({ hasText: 'Панель управления — новая архитектура' });
+  await row.getByRole('button', { name: 'В избранное', exact: true }).click();
+  await expect(row.getByRole('button', { name: 'Убрать из избранного' })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await page.getByRole('button', { name: 'Избранное', exact: true }).click();
+  await expect(page.locator('.session-row')).toHaveCount(1);
+  await page.request.post('http://127.0.0.1:4097/__test/agents');
+  for (const [id, parentID, title] of [
+    ['ses_sibling', 'ses_panel', 'Второй агент'],
+    ['ses_nested', 'ses_sibling', 'Вложенный агент'],
+  ]) {
+    const info = {
+      id,
+      parentID,
+      title,
+      projectID: 'p',
+      slug: id,
+      directory: 'C:/coding/emberdeck',
+      version: '1',
+      time: { created: Date.now(), updated: Date.now() },
+    };
+    await page.request.post('http://127.0.0.1:4097/__test/event', {
+      data: { type: 'session.created', properties: { info } },
+    });
+  }
+  await page.getByRole('button', { name: 'Все', exact: true }).click();
+  await expect(
+    page.locator('.session-row').filter({ hasText: /Второй агент|Вложенный агент|Аудит модулей/ }),
+  ).toHaveCount(0);
+  await row.locator('.session-open').click();
+  await page.getByRole('button', { name: /Агенты · 3/ }).click();
+  await expect(page.getByRole('dialog', { name: 'Агенты сессии' })).toContainText('Вложенный агент');
+  await page.getByRole('button', { name: /Второй агент.*Завершён/ }).click();
+  await expect(page.locator('.chat-heading h1')).toHaveText('Второй агент');
+  await page.getByRole('button', { name: /Агенты · 1/ }).click();
+  await page.getByRole('button', { name: /Вложенный агент.*Завершён/ }).click();
+  await expect(page.locator('.chat-heading h1')).toHaveText('Вложенный агент');
+  await tab(page, 'Сессии');
+  await expect(row.getByRole('button', { name: 'Убрать из избранного' })).toBeVisible();
+});
+
+test('groups model choices by provider and completes built-in and server slash commands', async ({
+  page,
+}) => {
+  await connect(page);
+  await page.getByRole('button', { name: /Панель управления — новая архитектура/ }).click();
+  const input = page.getByLabel('Промпт для OpenCode');
+  await input.fill('/mod');
+  await expect(page.getByRole('option', { name: /\/models/ })).toBeVisible();
+  await input.press('Tab');
+  await expect(input).toHaveValue('/models ');
+  await input.press('Enter');
+  const picker = page.getByRole('dialog', { name: 'Выбрать модель' });
+  await expect(picker.getByRole('region', { name: 'Провайдер Anthropic', exact: true })).toBeVisible();
+  await expect(picker.getByRole('region', { name: 'Провайдер OpenAI', exact: true })).toBeVisible();
+  await picker.getByRole('button', { name: /Claude Sonnet/ }).click();
+  await input.fill('/com');
+  await input.press('Enter');
+  await expect(input).toHaveValue('/compact ');
+  await input.press('Enter');
+  await expect(input).toHaveValue('');
+  const state = await (await page.request.get('http://127.0.0.1:4097/__test/state')).json();
+  expect(state.commandRequests).toEqual([
+    expect.objectContaining({
+      action: 'summarize',
+      sessionID: 'ses_panel',
+      providerID: 'anthropic',
+      modelID: 'claude-sonnet-4-6',
+      auto: false,
+    }),
+  ]);
+  expect(state.prompts).toHaveLength(0);
+  await input.fill('/rev');
+  await page.getByRole('option', { name: /\/review/ }).click();
+  await input.fill('/review src');
+  await input.press('Control+Enter');
+  await expect(input).toHaveValue('');
+  const next = await (await page.request.get('http://127.0.0.1:4097/__test/state')).json();
+  expect(next.prompts[0]).toMatchObject({ command: 'review', arguments: 'src' });
+  await input.fill('/unknown');
+  await page.getByRole('button', { name: 'Отправить промпт' }).click();
+  await expect(page.getByRole('alert')).toContainText('Команда не найдена');
+  await expect(input).toHaveValue('/unknown');
+});
+
+test('sends text and attachments during generation without aborting the current answer', async ({ page }) => {
+  await connect(page);
+  await page.getByRole('button', { name: /Панель управления — новая архитектура/ }).click();
+  const requests: string[] = [];
+  page.on('request', (request) => {
+    if (request.method() === 'POST') requests.push(request.url());
+  });
+  const busy = () =>
+    page.request.post('http://127.0.0.1:4097/__test/event', {
+      data: { type: 'session.status', properties: { sessionID: 'ses_panel', status: { type: 'busy' } } },
+    });
+  await busy();
+  await expect(page.getByRole('button', { name: 'Остановить генерацию' })).toBeVisible();
+  await page.getByLabel('Промпт для OpenCode').fill('Дополнение без остановки');
+  await expect(page.getByRole('button', { name: 'Остановить генерацию' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Отправить промпт' }).click();
+  await expect(page.getByLabel('Промпт для OpenCode')).toHaveValue('');
+  await busy();
+  await page
+    .locator('input[type="file"]')
+    .setInputFiles({
+      name: 'additional.pdf',
+      mimeType: 'application/pdf',
+      buffer: Buffer.from('%PDF-1.4\n'),
+    });
+  await expect(page.getByRole('button', { name: 'Отправить промпт' })).toBeEnabled();
+  await page.getByRole('button', { name: 'Отправить промпт' }).click();
+  await expect(page.locator('.composer-attachments')).toHaveCount(0);
+  const state = await (await page.request.get('http://127.0.0.1:4097/__test/state')).json();
+  expect(state.prompts).toHaveLength(2);
+  expect(state.prompts[1].parts[0]).toMatchObject({ type: 'file', filename: 'additional.pdf' });
+  expect(requests.filter((url) => url.includes('/abort'))).toEqual([]);
 });
 
 test('mobile release screenshots and absence of desktop navigation', async ({ page }, info) => {

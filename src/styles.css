@@ -40,6 +40,8 @@
     cursor: pointer;
     border: 0;
     touch-action: manipulation;
+    -webkit-user-select: none;
+    user-select: none;
   }
   button:disabled {
     opacity: 0.44;
@@ -78,6 +80,9 @@
     --sans: 'Manrope', sans-serif;
     --safe-top: var(--safe-area-inset-top, env(safe-area-inset-top, 0px));
     --safe-bottom: var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px));
+    --safe-left: var(--safe-area-inset-left, env(safe-area-inset-left, 0px));
+    --safe-right: var(--safe-area-inset-right, env(safe-area-inset-right, 0px));
+    --control-safe-bottom: var(--safe-bottom);
     font-family: var(--sans);
     font-synthesis: none;
     background: var(--bg);
@@ -87,6 +92,9 @@
     font-size: 15px;
     line-height: 1.6;
     overscroll-behavior: none;
+  }
+  body.keyboard-open {
+    --control-safe-bottom: 0px;
   }
   ::selection {
     background: var(--surface-interactive-base);
@@ -146,6 +154,16 @@
     border-color: var(--border-focus);
     box-shadow: 0 0 0 3px var(--surface-interactive-weak);
   }
+  input:focus-visible,
+  textarea:focus-visible,
+  select:focus-visible {
+    outline: none;
+  }
+  input:not([type='radio']):not([type='checkbox']),
+  textarea {
+    -webkit-appearance: none;
+    appearance: none;
+  }
   input::placeholder,
   textarea::placeholder {
     color: var(--text-weak);
@@ -174,6 +192,7 @@
     height: 20px;
     min-height: 20px;
     flex-shrink: 0;
+    padding: 0;
   }
   code,
   pre,
@@ -397,12 +416,6 @@
   .keyboard-open .main-content {
     padding-bottom: 20px;
   }
-  .keyboard-open .modal-inner {
-    padding-bottom: 20px;
-  }
-  .keyboard-open .composer-wrap {
-    padding-bottom: 10px;
-  }
   .composer-wrap,
   .modal-inner {
     transition: padding-bottom var(--keyboard-duration, 0ms) var(--keyboard-easing, ease-out);
@@ -481,21 +494,11 @@
     align-items: center;
     cursor: pointer;
   }
-  .child-sessions {
+  .agents-summary {
     flex-shrink: 0;
     padding: 0 18px;
     border-bottom: 1px solid var(--border-base);
-  }
-  .child-sessions > summary {
     font-size: 13px;
-    padding: 12px 0;
-    cursor: pointer;
-  }
-  .child-sessions > div {
-    max-height: 25dvh;
-    overflow: auto;
-  }
-  .child-sessions button {
     display: flex;
     gap: 10px;
     align-items: center;
@@ -505,14 +508,14 @@
     color: var(--text-base);
     text-align: left;
   }
-  .child-sessions button span {
+  .agents-summary span {
     flex: 1;
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .child-sessions small {
+  .agents-summary small {
     color: var(--text-weak);
     white-space: nowrap;
   }
@@ -706,7 +709,7 @@
     backdrop-filter: blur(4px);
   }
   .modal-inner {
-    padding: 44px 22px calc(26px + var(--safe-bottom));
+    padding: 40px 20px calc(16px + var(--control-safe-bottom));
   }
   .modal-handle {
     position: absolute;
@@ -746,7 +749,10 @@
     align-items: flex-start;
     justify-content: space-between;
     gap: 12px;
-    margin-bottom: 25px;
+    margin-bottom: 16px;
+  }
+  .modal-header > div {
+    min-width: 0;
   }
   .modal-header .eyebrow {
     font-size: 9px;
@@ -754,7 +760,7 @@
   }
   .modal-header h2 {
     margin-top: 6px;
-    font-size: 25px;
+    font-size: 22px;
     line-height: 1.25;
     letter-spacing: -0.8px;
   }
@@ -764,9 +770,13 @@
     line-height: 1.7;
     margin-top: 9px;
     overflow-wrap: anywhere;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
   }
   .modal-header .icon-button {
-    margin: -5px -10px 0 0;
+    margin: 0;
   }
   .modal-paragraph {
     font-size: 15px;
@@ -1046,32 +1056,6 @@
     min-width: 0;
     max-width: 100%;
   }
-  .subtask-filter {
-    display: flex;
-    align-items: center;
-    gap: 7px;
-    min-height: 44px;
-    font-size: 12px;
-    color: var(--muted);
-  }
-  .session-group {
-    display: grid;
-    gap: 10px;
-    margin-bottom: 14px;
-  }
-  .session-group h2 {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    overflow-wrap: anywhere;
-    font-size: 14px;
-    letter-spacing: 0;
-    color: var(--muted);
-  }
-  .session-group h2 small {
-    margin-left: auto;
-    font: 11px var(--mono);
-  }
   .more-sessions {
     width: 100%;
     margin: 12px 0;
@@ -1097,11 +1081,93 @@
     border-radius: 15px;
     width: 100%;
     display: flex;
-    align-items: flex-start;
-    gap: 12px;
+    align-items: center;
+    gap: 0;
     text-align: left;
-    padding: 17px 14px;
-    min-height: 110px;
+    padding: 0 8px 0 14px;
+    min-height: 88px;
+  }
+  .session-open {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex: 1;
+    min-width: 0;
+    padding: 15px 0;
+    text-align: left;
+    color: inherit;
+    background: none;
+  }
+  .favorite-button {
+    display: grid;
+    place-items: center;
+    width: 44px;
+    height: 44px;
+    flex-shrink: 0;
+    color: var(--icon-base);
+    background: none;
+    border-radius: 12px;
+  }
+  .favorite-button[aria-pressed='true'] {
+    color: var(--icon-warning-base);
+  }
+  [data-native-control='true'] {
+    opacity: 0 !important;
+    pointer-events: none;
+  }
+  .update-notice {
+    position: fixed;
+    bottom: calc(84px + env(safe-area-inset-bottom));
+    left: 16px;
+    right: 16px;
+    max-width: 440px;
+    margin: auto;
+    z-index: 20;
+    display: flex;
+    align-items: center;
+    padding: 4px 8px;
+    border: 1px solid var(--border-base);
+    border-radius: 14px;
+    background: var(--surface-raised-base);
+    color: var(--text-strong);
+    box-shadow: 0 4px 24px #0002;
+  }
+  .update-notice > button:first-child {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: 1;
+    min-height: 44px;
+    background: none;
+    color: inherit;
+    text-align: left;
+  }
+  .update-downloads {
+    display: grid;
+    gap: 12px;
+    margin-top: 18px;
+  }
+  .model-provider-group h3 {
+    display: flex;
+    justify-content: space-between;
+    padding: 14px 4px 8px;
+    font-size: 13px;
+    color: var(--text-weak);
+  }
+  .command-suggestions {
+    max-height: min(280px, 40dvh);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+  .command-suggestions [aria-selected='true'] {
+    background: var(--surface-base-active);
+  }
+  .release-notes {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    max-height: 40dvh;
+    overflow-y: auto;
+    font-size: 13px;
   }
   .session-row:active {
     background: var(--surface-base-active);
@@ -1963,7 +2029,7 @@
   .composer-wrap {
     position: relative;
     flex-shrink: 0;
-    padding: 10px 14px calc(10px + var(--safe-bottom));
+    padding: 8px 12px calc(8px + var(--control-safe-bottom));
     background: var(--background-base);
   }
   .composer {
@@ -1976,8 +2042,9 @@
     border-color: var(--border-focus);
   }
   .composer > textarea {
+    display: block;
     min-height: 48px;
-    max-height: 150px;
+    max-height: clamp(48px, calc(var(--app-height, 100dvh) * 0.22), 150px);
     resize: none;
     border: 0;
     background: none;
@@ -1987,6 +2054,11 @@
     font-size: 16px;
     line-height: 1.65;
     color: var(--text-base);
+  }
+  .composer > textarea:focus,
+  .composer > textarea:focus-visible {
+    outline: none;
+    box-shadow: none;
   }
   .composer > textarea::placeholder {
     color: var(--text-weak);
@@ -2095,15 +2167,18 @@
   }
   .composer-attachments {
     display: flex;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
     gap: 7px;
-    margin-bottom: 13px;
+    margin-bottom: 8px;
   }
   .composer-attachments > span {
     display: inline-flex;
     align-items: center;
     gap: 6px;
     max-width: 100%;
+    flex-shrink: 0;
     padding: 3px 7px;
     background: var(--surface-raised-base);
     border: 1px solid var(--border-base);
@@ -2231,8 +2306,8 @@
     color: var(--text-weak);
   }
   .question-text {
-    font-size: 17px;
-    line-height: 1.65;
+    font-size: 16px;
+    line-height: 1.5;
     font-weight: 630;
     color: var(--text-strong);
   }
@@ -2248,8 +2323,8 @@
     border: 1px solid var(--border-base);
     border-radius: 12px;
     background: var(--input-base);
-    padding: 14px 12px;
-    min-height: 62px;
+    padding: 12px;
+    min-height: 56px;
     cursor: pointer;
   }
   .question-option:has(input:checked) {
@@ -2258,6 +2333,10 @@
   }
   .question-option input {
     margin: 3px 0 0;
+  }
+  .question-option > span {
+    min-width: 0;
+    overflow-wrap: anywhere;
   }
   .question-option strong {
     display: block;
@@ -2268,7 +2347,7 @@
     display: block;
     color: var(--text-weak);
     font-size: 12px;
-    line-height: 1.7;
+    line-height: 1.5;
     margin-top: 4px;
   }
   .request-actions {
@@ -2279,9 +2358,9 @@
     gap: 8px;
   }
   .request-actions .button {
-    font-size: 12px;
+    font-size: 13px;
     padding: 11px 12px;
-    min-height: 47px;
+    min-height: 48px;
   }
   .question-card .request-actions > .button-primary {
     flex: 1;
@@ -2340,17 +2419,246 @@
     flex: 1;
   }
   .request-sheet {
-    display: grid;
-    gap: 17px;
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    gap: 12px;
+  }
+  .request-modal {
+    height: min(calc(var(--app-height, 100dvh) - var(--safe-top) - 12px), 900px);
+    overflow: hidden;
+  }
+  .request-modal .modal-inner {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    padding-bottom: calc(12px + var(--control-safe-bottom));
+  }
+  .request-modal .modal-header,
+  .request-sheet > select {
+    flex-shrink: 0;
+  }
+  .request-sheet-item {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+  }
+  .request-sheet-item[hidden] {
+    display: none;
   }
   .request-sheet .request-card {
     padding: 0;
     background: none;
     border: 0;
     border-radius: 0;
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    min-height: 0;
+  }
+  .request-sheet .request-heading {
+    flex-shrink: 0;
+    margin-bottom: 12px;
+  }
+  .request-sheet .question-card[data-steps='1'] .request-heading {
+    display: none;
+  }
+  .request-sheet .request-body {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    padding: 2px 2px 12px;
+    overscroll-behavior: contain;
+    scroll-padding-block: 12px;
+  }
+  .request-sheet .request-actions {
+    flex-shrink: 0;
+    border-top: 1px solid var(--border-base);
+    padding-top: 12px;
   }
   .request-sheet .request-live {
     display: none;
+  }
+  .app-shell,
+  .mobile-nav,
+  .modal {
+    width: calc(100% - var(--safe-left) - var(--safe-right));
+  }
+  .attachment-name {
+    min-width: 0;
+    max-width: 220px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .keyboard-dismiss {
+    display: none;
+  }
+  .request-compact {
+    display: none;
+    position: relative;
+    color: var(--icon-warning-base);
+  }
+  .request-compact small {
+    position: absolute;
+    top: 1px;
+    right: 1px;
+    font: 10px var(--mono);
+  }
+  .chat-navigation {
+    display: contents;
+  }
+  .keyboard-open .chat-heading {
+    padding: 4px 8px;
+    min-height: 52px;
+  }
+  .keyboard-open .chat-heading .eyebrow,
+  .keyboard-open .chat-tabs,
+  .keyboard-open .agents-summary,
+  .keyboard-open .composer-footnote {
+    display: none;
+  }
+  .keyboard-open .composer > textarea {
+    max-height: clamp(48px, calc(var(--app-height, 100dvh) * 0.16), 100px);
+  }
+  .keyboard-open .composer-wrap {
+    padding: 6px 10px;
+  }
+  .keyboard-open .composer {
+    padding: 8px 10px;
+  }
+  .keyboard-open .request-tray {
+    min-height: 44px;
+    padding: 8px 12px;
+  }
+  @media (orientation: landscape) and (max-height: 500px) {
+    .chat-heading {
+      min-height: 52px;
+      padding: 4px 8px;
+    }
+    .chat-heading .eyebrow {
+      display: none;
+    }
+    .request-tray {
+      display: none;
+    }
+    .request-compact {
+      display: grid;
+    }
+    .chat-navigation {
+      display: flex;
+      flex-shrink: 0;
+      min-width: 0;
+    }
+    .chat-tabs {
+      flex: 1;
+      padding-inline: 4px;
+    }
+    .chat-tabs button {
+      min-height: 44px;
+      padding-block: 8px;
+    }
+    .agents-summary {
+      width: auto;
+      max-width: 150px;
+      padding-inline: 8px;
+    }
+    .agents-summary small {
+      display: none;
+    }
+    .composer-wrap {
+      padding: 6px 10px calc(6px + var(--control-safe-bottom));
+    }
+    .composer {
+      padding: 8px 10px;
+    }
+    .composer > textarea {
+      max-height: 48px;
+    }
+    .composer-controls {
+      margin-top: 4px;
+    }
+    .composer-footnote {
+      display: none;
+    }
+    .modal-inner {
+      padding-top: 30px;
+    }
+    .modal-handle {
+      height: 32px;
+    }
+    .modal-header {
+      margin-bottom: 10px;
+      align-items: center;
+    }
+    .modal-header h2 {
+      margin-top: 0;
+      font-size: 19px;
+    }
+    .modal-header p {
+      -webkit-line-clamp: 1;
+      margin-top: 2px;
+      font-size: 12px;
+    }
+    .request-sheet .request-heading {
+      margin-bottom: 8px;
+    }
+    .request-sheet .request-icon {
+      display: none;
+    }
+    .request-sheet .request-actions {
+      padding-top: 8px;
+    }
+    .request-sheet .permission-card .request-actions .button {
+      width: auto;
+      order: initial;
+      flex: 1;
+    }
+    .keyboard-open .chat-heading,
+    .keyboard-open .chat-tabs,
+    .keyboard-open .agents-summary,
+    .keyboard-open .request-tray,
+    .keyboard-open .composer-footnote,
+    .keyboard-open .composer-selection {
+      display: none;
+    }
+    .keyboard-open .composer-wrap {
+      padding: 4px 8px 6px;
+    }
+    .keyboard-open .composer {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 4px 8px;
+      padding: 6px 8px;
+    }
+    .keyboard-open .composer > textarea {
+      grid-area: 1 / 1;
+      min-height: 44px;
+      max-height: 44px;
+    }
+    .keyboard-open .composer-controls {
+      grid-area: 1 / 2;
+      margin-top: 0;
+    }
+    .keyboard-open .composer-attachments {
+      grid-area: 2 / 1 / 3 / 3;
+      margin-bottom: 0;
+    }
+    .keyboard-open .keyboard-dismiss {
+      display: grid;
+    }
+    .keyboard-open .request-modal .modal-header p {
+      display: none;
+    }
+    .keyboard-open .request-modal .modal-header,
+    .keyboard-open .request-modal .modal-handle,
+    .keyboard-open .request-modal .request-sheet > select {
+      display: none;
+    }
+    .keyboard-open .request-modal .modal-inner {
+      padding-top: 8px;
+    }
   }
   .notification-prompt {
     margin: 25px 0 0;

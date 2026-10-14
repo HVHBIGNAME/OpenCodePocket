@@ -1,9 +1,9 @@
-import { useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import { Check, ChevronRight, MessageSquare, ShieldCheck, X } from 'lucide-react';
 import { ApiError } from '../lib/api';
 import { usePocket } from '../store/PocketProvider';
 import type { PendingPermission, PendingQuestion } from '../types';
-import { Button } from './ui';
+import { Button, KeyboardDismiss } from './ui';
 
 export function QuestionCard({ request }: { request: PendingQuestion }) {
   const { client, perform, setData, notify, haptic } = usePocket();
@@ -11,6 +11,10 @@ export function QuestionCard({ request }: { request: PendingQuestion }) {
   const [custom, setCustom] = useState<string[]>(request.questions.map(() => ''));
   const [busy, setBusy] = useState(false);
   const [step, setStep] = useState(0);
+  const body = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    if (body.current) body.current.scrollTop = 0;
+  }, [step]);
   const answers = request.questions.map((question, index) => {
     const text = custom[index]?.trim();
     return text ? (question.multiple ? [...(selected[index] ?? []), text] : [text]) : (selected[index] ?? []);
@@ -41,7 +45,11 @@ export function QuestionCard({ request }: { request: PendingQuestion }) {
     setBusy(false);
   }
   return (
-    <section className="request-card question-card" aria-label="Вопрос от OpenCode">
+    <section
+      className="request-card question-card"
+      data-steps={request.questions.length}
+      aria-label="Вопрос от OpenCode"
+    >
       <div className="request-heading">
         <span className="request-icon">
           <MessageSquare size={18} />
@@ -56,59 +64,67 @@ export function QuestionCard({ request }: { request: PendingQuestion }) {
         </span>
         <span className="request-live">ОЖИДАНИЕ</span>
       </div>
-      {request.questions.map((question, index) =>
-        index === step ? (
-          <fieldset key={index}>
-            <legend>
-              <span className="eyebrow">{question.header} </span>
-              <span className="question-text">{question.question}</span>
-            </legend>
-            <div className="question-options">
-              {question.options.map((option) => (
-                <label key={option.label} className="question-option">
-                  <input
-                    type={question.multiple ? 'checkbox' : 'radio'}
-                    name={`${request.id}-${index}`}
-                    checked={
-                      (selected[index] ?? []).includes(option.label) && (question.multiple || !custom[index])
-                    }
-                    onChange={() => {
-                      setSelected((old) =>
-                        old.map((values, i) =>
-                          i !== index
-                            ? values
-                            : question.multiple
-                              ? values.includes(option.label)
-                                ? values.filter((item) => item !== option.label)
-                                : [...values, option.label]
-                              : [option.label],
-                        ),
-                      );
-                      if (!question.multiple)
-                        setCustom((old) => old.map((value, i) => (i === index ? '' : value)));
-                    }}
-                  />
-                  <span>
-                    <strong>{option.label}</strong>
-                    <small>{option.description}</small>
-                  </span>
-                </label>
-              ))}
-            </div>
-            {question.custom !== false && (
-              <input
-                aria-label={`Свой ответ: ${question.header}`}
-                placeholder="Или свой вариант…"
-                value={custom[index] ?? ''}
-                onChange={(event) =>
-                  setCustom((old) => old.map((value, i) => (i === index ? event.target.value : value)))
-                }
-              />
-            )}
-          </fieldset>
-        ) : null,
-      )}
+      <div className="request-body" ref={body}>
+        {request.questions.map((question, index) =>
+          index === step ? (
+            <fieldset key={index}>
+              <legend>
+                <span className="eyebrow">{question.header} </span>
+                <span className="question-text">{question.question}</span>
+              </legend>
+              <div className="question-options">
+                {question.options.map((option) => (
+                  <label
+                    key={option.label}
+                    className="question-option"
+                    aria-label={`${option.label} ${option.description}`}
+                  >
+                    <input
+                      type={question.multiple ? 'checkbox' : 'radio'}
+                      name={`${request.id}-${index}`}
+                      checked={
+                        (selected[index] ?? []).includes(option.label) &&
+                        (question.multiple || !custom[index])
+                      }
+                      onChange={() => {
+                        setSelected((old) =>
+                          old.map((values, i) =>
+                            i !== index
+                              ? values
+                              : question.multiple
+                                ? values.includes(option.label)
+                                  ? values.filter((item) => item !== option.label)
+                                  : [...values, option.label]
+                                : [option.label],
+                          ),
+                        );
+                        if (!question.multiple)
+                          setCustom((old) => old.map((value, i) => (i === index ? '' : value)));
+                      }}
+                    />
+                    <span>
+                      <strong>{option.label}</strong>
+                      <small>{option.description}</small>
+                    </span>
+                  </label>
+                ))}
+              </div>
+              {question.custom !== false && (
+                <input
+                  aria-label={`Свой ответ: ${question.header}`}
+                  placeholder="Или свой вариант…"
+                  value={custom[index] ?? ''}
+                  onChange={(event) =>
+                    setCustom((old) => old.map((value, i) => (i === index ? event.target.value : value)))
+                  }
+                />
+              )}
+            </fieldset>
+          ) : null,
+        )}
+      </div>
       <div className="request-actions">
+        <KeyboardDismiss />
         <Button
           variant="ghost"
           disabled={busy}
@@ -168,24 +184,27 @@ export function PermissionCard({ request }: { request: PendingPermission }) {
         </span>
         <span className="request-live">ДОСТУП</span>
       </div>
-      <div className="permission-patterns">
-        {request.patterns.map((pattern, index) => (
-          <code key={index}>{pattern}</code>
-        ))}
+      <div className="request-body">
+        <div className="permission-patterns">
+          {request.patterns.map((pattern, index) => (
+            <code key={index}>{pattern}</code>
+          ))}
+        </div>
+        {Object.keys(request.metadata).length > 0 && (
+          <details className="tool-details">
+            <summary>Параметры действия</summary>
+            <pre>{JSON.stringify(request.metadata, null, 2)}</pre>
+          </details>
+        )}
+        {confirmAlways && (
+          <p className="form-hint">
+            OpenCode запомнит разрешение для указанных шаблонов:{' '}
+            {(request.always.length ? request.always : request.patterns).join(', ')}.
+          </p>
+        )}
       </div>
-      {Object.keys(request.metadata).length > 0 && (
-        <details className="tool-details">
-          <summary>Параметры действия</summary>
-          <pre>{JSON.stringify(request.metadata, null, 2)}</pre>
-        </details>
-      )}
-      {confirmAlways && (
-        <p className="form-hint">
-          OpenCode запомнит разрешение для указанных шаблонов:{' '}
-          {(request.always.length ? request.always : request.patterns).join(', ')}.
-        </p>
-      )}
       <div className="request-actions">
+        <KeyboardDismiss />
         <Button variant="ghost" disabled={busy} onClick={() => void reply('reject')}>
           <X size={15} />
           Отклонить
@@ -203,5 +222,50 @@ export function PermissionCard({ request }: { request: PendingPermission }) {
         </Button>
       </div>
     </section>
+  );
+}
+
+export function RequestSheet({
+  questions,
+  permissions,
+}: {
+  questions: PendingQuestion[];
+  permissions: PendingPermission[];
+}) {
+  const requests = [
+    ...questions.map((request, index) => ({
+      key: `question.${request.id}`,
+      label: `Вопрос ${index + 1}: ${request.questions[0]?.header ?? 'Ответ'}`,
+      content: <QuestionCard request={request} />,
+    })),
+    ...permissions.map((request, index) => ({
+      key: `permission.${request.id}`,
+      label: `Доступ ${index + 1}: ${request.permission}`,
+      content: <PermissionCard request={request} />,
+    })),
+  ];
+  const [selected, setSelected] = useState<string>();
+  const active = requests.some((request) => request.key === selected) ? selected : requests[0]?.key;
+  return (
+    <div className="request-sheet">
+      {requests.length > 1 && (
+        <select
+          aria-label="Выбрать запрос"
+          value={active}
+          onChange={(event) => setSelected(event.target.value)}
+        >
+          {requests.map((request) => (
+            <option key={request.key} value={request.key}>
+              {request.label}
+            </option>
+          ))}
+        </select>
+      )}
+      {requests.map((request) => (
+        <div className="request-sheet-item" key={request.key} hidden={active !== request.key}>
+          {request.content}
+        </div>
+      ))}
+    </div>
   );
 }

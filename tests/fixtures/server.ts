@@ -18,6 +18,7 @@ let messages: Record<string, MessageEntry[]>;
 let questions: Record<string, unknown>[];
 let permissions: Record<string, unknown>[];
 let prompts: Record<string, unknown>[];
+let commandRequests: Record<string, unknown>[];
 let replies: unknown[];
 let providerKeys: string[];
 
@@ -28,6 +29,7 @@ function reset() {
     permission: { read: 'allow', edit: 'ask', bash: { '*': 'ask', 'git status*': 'allow' } },
   };
   prompts = [];
+  commandRequests = [];
   replies = [];
   providerKeys = [];
   sessions = [
@@ -284,7 +286,8 @@ const server = createServer((request, response) => {
       emit('message.part.updated', { part });
       return send(response, true);
     }
-    if (url.pathname === '/__test/state') return send(response, { config, prompts, replies, providerKeys });
+    if (url.pathname === '/__test/state')
+      return send(response, { config, prompts, replies, providerKeys, commandRequests });
     if (url.pathname === '/__test/event') {
       const type = String(payload.type);
       const properties = payload.properties as Record<string, unknown>;
@@ -461,6 +464,20 @@ const server = createServer((request, response) => {
     if (match) {
       const id = match[1]!;
       const action = match[2];
+      if (action && ['summarize', 'revert', 'unrevert'].includes(action) && request.method === 'POST') {
+        commandRequests.push({
+          action,
+          sessionID: id,
+          directory: url.searchParams.get('directory'),
+          ...payload,
+        });
+        if (action === 'summarize') return send(response, true);
+        const target = sessions.find((item) => item.id === id)!;
+        if (action === 'revert') target.revert = { messageID: String(payload.messageID) };
+        else delete target.revert;
+        emit('session.updated', { info: target });
+        return send(response, target);
+      }
       if (action === 'children')
         return send(
           response,

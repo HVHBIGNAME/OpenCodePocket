@@ -102,6 +102,38 @@ export async function http<T>(
   return payload as T;
 }
 
+function waitForReadRetry(signal?: AbortSignal) {
+  signal?.throwIfAborted();
+  return new Promise<void>((resolve, reject) => {
+    const abort = () => {
+      clearTimeout(timer);
+      reject(signal?.reason);
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', abort);
+      resolve();
+    }, 400);
+    signal?.addEventListener('abort', abort, { once: true });
+  });
+}
+
+async function retryRead<T>(request: (timeout: number) => Promise<T>, timeout: number, signal?: AbortSignal) {
+  const started = Date.now();
+  try {
+    return await request(timeout);
+  } catch (error) {
+    if (
+      !(error instanceof ApiError) ||
+      ![502, 503, 504].includes(error.status) ||
+      signal?.aborted ||
+      Date.now() - started + 400 >= timeout
+    )
+      throw error;
+    await waitForReadRetry(signal);
+    return request(Math.max(1, timeout - (Date.now() - started)));
+  }
+}
+
 export class OpenCodeClient {
   readonly authorization: string;
   readonly base: string;
@@ -135,14 +167,20 @@ export class OpenCodeClient {
       timeoutMs?: number;
     } = {},
   ) {
-    return http<T>(
-      this.url(path, options.directory),
-      options.method,
-      options.data,
-      this.authorization,
-      options.signal,
-      options.timeoutMs,
-    ).catch((error: unknown) => {
+    const execute = (timeout = options.timeoutMs) =>
+      http<T>(
+        this.url(path, options.directory),
+        options.method,
+        options.data,
+        this.authorization,
+        options.signal,
+        timeout,
+      );
+    const operation =
+      (options.method ?? 'GET').toUpperCase() === 'GET'
+        ? retryRead(execute, options.timeoutMs ?? 30000, options.signal)
+        : execute();
+    return operation.catch((error: unknown) => {
       if (!options.signal?.aborted)
         captureDiagnostic(error, { kind: 'request', operation: diagnosticOperation(path) });
       throw error;

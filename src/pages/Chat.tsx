@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowDown,
   ArrowLeft,
@@ -22,10 +22,11 @@ import { usePocket } from '../store/PocketProvider';
 import { folderName } from '../lib/format';
 import { Button, EmptyState, IconButton, Modal, CopyButton } from '../components/ui';
 import { MessageView } from '../components/MessageView';
-import { QuestionCard, PermissionCard } from '../components/Requests';
+import { RequestSheet } from '../components/Requests';
 import { Composer } from '../components/Composer';
 import { SessionDetails } from '../components/SessionDetails';
 import { ChatSearch } from '../components/ChatSearch';
+import { AgentSessions } from '../components/AgentSessions';
 import type { MessageEntry, Session } from '../types';
 import { dragFeedback, useSwipe } from '../lib/gestures';
 
@@ -59,7 +60,12 @@ export function Chat() {
   );
   const scrollRef = useRef<HTMLDivElement>(null);
   const selectedID = session?.id;
-  const entries = selectedID ? (data.messages[selectedID] ?? emptyMessages) : emptyMessages;
+  const loadedEntries = selectedID ? (data.messages[selectedID] ?? emptyMessages) : emptyMessages;
+  const revertID = session?.revert?.messageID;
+  const entries = useMemo(
+    () => (revertID ? loadedEntries.filter((entry) => entry.info.id < revertID) : loadedEntries),
+    [loadedEntries, revertID],
+  );
   const missingReasoning = entries.some((entry) =>
     entry.parts.some((part) => part.type === 'reasoning' && !part.text.trim() && part.time.end),
   );
@@ -134,9 +140,6 @@ export function Chat() {
       }
     },
   });
-  const children = data.sessions
-    .filter((item) => item.parentID === session?.id && !item.time.archived)
-    .sort((a, b) => a.time.created - b.time.created || a.id.localeCompare(b.id));
   const questions = data.questions.filter((item) => item.sessionID === session?.id);
   const permissions = data.permissions.filter((item) => item.sessionID === session?.id);
   const requestCount = questions.length + permissions.length;
@@ -230,53 +233,40 @@ export function Chat() {
         <IconButton label="Действия с сессией" onClick={() => setActions(true)}>
           <MoreHorizontal size={21} />
         </IconButton>
-      </header>
-      <nav className="chat-tabs" aria-label="Содержимое сессии">
-        {(
-          [
-            ['chat', MessageSquare, 'Диалог'],
-            ['diff', Code2, 'Изменения'],
-            ['todos', CheckSquare, 'Задачи'],
-            ['files', FileCode2, 'Файлы'],
-          ] as const
-        ).map(([value, Icon, label]) => (
-          <button
-            key={value}
-            aria-current={tab === value ? 'page' : undefined}
-            className={tab === value ? 'active' : ''}
-            onClick={() => setTab(value)}
+        {requestCount > 0 && (
+          <IconButton
+            label="Нужен твой ответ"
+            className="request-compact"
+            onClick={() => setRequestsOpen(true)}
           >
-            <Icon size={16} />
-            {label}
-          </button>
-        ))}
-      </nav>
-      {children.length > 0 && (
-        <details className="child-sessions">
-          <summary>Агенты · {children.length}</summary>
-          <div>
-            {children.map((child) => (
-              <button
-                key={child.id}
-                onClick={() => void perform(() => openRelatedSession(child.id, child.directory))}
-              >
-                <span>{child.title}</span>
-                <small>
-                  {data.questions.some((item) => item.sessionID === child.id) ||
-                  data.permissions.some((item) => item.sessionID === child.id)
-                    ? 'Ждёт ответа'
-                    : data.statuses[child.id]?.type === 'retry'
-                      ? 'Повтор запроса'
-                      : data.statuses[child.id]?.type === 'busy'
-                        ? 'В работе'
-                        : 'Открыть'}
-                </small>
-                <ChevronRight size={14} />
-              </button>
-            ))}
-          </div>
-        </details>
-      )}
+            <MessageSquare size={19} />
+            <small>{requestCount}</small>
+          </IconButton>
+        )}
+      </header>
+      <div className="chat-navigation">
+        <nav className="chat-tabs" aria-label="Содержимое сессии">
+          {(
+            [
+              ['chat', MessageSquare, 'Диалог'],
+              ['diff', Code2, 'Изменения'],
+              ['todos', CheckSquare, 'Задачи'],
+              ['files', FileCode2, 'Файлы'],
+            ] as const
+          ).map(([value, Icon, label]) => (
+            <button
+              key={value}
+              aria-current={tab === value ? 'page' : undefined}
+              className={tab === value ? 'active' : ''}
+              onClick={() => setTab(value)}
+            >
+              <Icon size={16} />
+              {label}
+            </button>
+          ))}
+        </nav>
+        <AgentSessions key={session.id} parentID={session.id} />
+      </div>
       {status !== 'live' && (
         <div className="offline-banner">
           <span>
@@ -421,15 +411,13 @@ export function Chat() {
       )}
       {actions && <SessionActions session={session} onClose={() => setActions(false)} />}
       {requestsOpen && (
-        <Modal title="Запросы" subtitle={session.title} onClose={() => setRequestsOpen(false)}>
-          <div className="request-sheet">
-            {questions.map((request) => (
-              <QuestionCard key={request.id} request={request} />
-            ))}
-            {permissions.map((request) => (
-              <PermissionCard key={request.id} request={request} />
-            ))}
-          </div>
+        <Modal
+          title="Запросы"
+          className="request-modal"
+          subtitle={session.title}
+          onClose={() => setRequestsOpen(false)}
+        >
+          <RequestSheet questions={questions} permissions={permissions} />
         </Modal>
       )}
     </div>

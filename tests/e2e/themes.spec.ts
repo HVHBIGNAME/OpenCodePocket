@@ -1,10 +1,14 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 import catalog from '../../src/themes/catalog.json' with { type: 'json' };
 
-test('offers Liquid Glass only on iPhone and preserves readable reduced-transparency surfaces', async ({
-  page,
-}, info) => {
+test('keeps original palettes and migrates the old glass theme without a CSS imitation', async ({ page }) => {
+  await page.addInitScript(() =>
+    localStorage.setItem('occ.appearance', JSON.stringify({ theme: 'liquid-glass', scheme: 'dark' })),
+  );
   await page.goto('/');
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'mercury');
+  await expect(page.locator('html')).toHaveAttribute('data-native-glass', 'true');
+  await expect(page.locator('html')).toHaveAttribute('data-glass-renderer', 'none');
   await page
     .getByRole('navigation', { name: 'Главная навигация' })
     .getByRole('button', { name: 'Настройки' })
@@ -12,29 +16,71 @@ test('offers Liquid Glass only on iPhone and preserves readable reduced-transpar
   await page.getByRole('button', { name: 'Тема: Mercury', exact: true }).click();
   await page.getByLabel('Поиск тем').fill('Liquid Glass');
   const option = page.getByRole('button', { name: 'Liquid Glass', exact: true });
-  if (info.project.name !== 'ios-webkit') {
-    await expect(option).toHaveCount(0);
-    return;
-  }
-  await option.click();
-  await page.getByRole('button', { name: 'Готово', exact: true }).click();
-  await expect(page.locator('html')).toHaveAttribute('data-theme', 'liquid-glass');
-  await expect(page.locator('html')).toHaveAttribute('data-glass-renderer', 'css');
-  for (const label of ['Тёмная', 'Светлая']) {
-    await page.getByRole('button', { name: label, exact: true }).click();
-    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
-    await page.screenshot({
-      path: info.outputPath(`liquid-glass-${label === 'Тёмная' ? 'dark' : 'light'}.png`),
+  await expect(option).toHaveCount(0);
+  await expect(page.getByRole('switch', { name: /Apple Liquid Glass/ })).toHaveCount(0);
+});
+
+test('hands native controls back to HTML for sheets and accessibility changes', async ({ page }) => {
+  await page.emulateMedia({ contrast: 'no-preference' });
+  await page.addInitScript(() => {
+    const original = window.matchMedia.bind(window);
+    window.matchMedia = (query) =>
+      original(query === '(prefers-reduced-transparency: reduce)' ? '(max-width: 0px)' : query);
+  });
+  await page.goto('/');
+  await expect(page.locator('.connection-switch')).toBeVisible();
+  await expect(page.locator('html')).toHaveAttribute('data-glass-renderer', 'none');
+  await page.evaluate(async () => {
+    const appearancePath = '/src/lib/appearance.ts';
+    const glassPath = '/src/lib/glass.ts';
+    const { setAppearance } = await import(appearancePath);
+    const { installGlassHandling } = await import(glassPath);
+    await setAppearance({ theme: 'github', nativeGlass: true });
+    const callbacks = new Map<string, (event: unknown) => void>();
+    const calls: { regions: { id: string }[] }[] = [];
+    const capabilities = {
+      nativeGlass: true,
+      reduceTransparency: false,
+      reduceMotion: false,
+      lowPower: false,
+    };
+    const cleanup = installGlassHandling(true, {
+      appearanceCapabilities: async () => capabilities,
+      setGlassAppearance: async ({ enabled }: { enabled: boolean }) => ({ enabled }),
+      setGlassRegions: async (options: { regions: { id: string }[] }) => {
+        calls.push(options);
+        return { ids: options.regions.map((region) => region.id) };
+      },
+      addListener: async (name: string, callback: (event: unknown) => void) => {
+        callbacks.set(name, callback);
+        return {
+          remove: async () => {
+            callbacks.delete(name);
+          },
+        };
+      },
     });
-  }
-  await page.getByRole('switch', { name: /Уменьшить прозрачность/ }).check();
-  await expect(page.locator('html')).toHaveAttribute('data-glass-renderer', 'opaque');
-  expect(
-    await page.locator('.mobile-nav').evaluate((element) => getComputedStyle(element).backdropFilter),
-  ).toBe('none');
-  await page.reload();
-  await expect(page.locator('html')).toHaveAttribute('data-theme', 'liquid-glass');
-  await expect(page.locator('html')).toHaveAttribute('data-glass-renderer', 'opaque');
+    Reflect.set(window, 'glassTest', { callbacks, calls, capabilities, cleanup });
+  });
+  const connection = page.locator('.connection-switch');
+  await expect(connection).toHaveAttribute('data-native-control', 'true');
+  await expect(connection).toHaveAttribute('aria-hidden', 'true');
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'github');
+  await page.evaluate(() =>
+    Reflect.get(window, 'glassTest').callbacks.get('glassAction')({ id: 'connection' }),
+  );
+  await expect(page.getByRole('dialog')).toBeVisible();
+  await expect(connection).not.toHaveAttribute('data-native-control', 'true');
+  await page.getByRole('button', { name: 'Закрыть', exact: true }).click();
+  await expect(connection).toHaveAttribute('data-native-control', 'true');
+  await page.evaluate(() => {
+    const state = Reflect.get(window, 'glassTest');
+    state.callbacks.get('appearanceAccessibility')({ ...state.capabilities, reduceTransparency: true });
+  });
+  await expect(connection).not.toHaveAttribute('aria-hidden', 'true');
+  await expect(page.locator('html')).toHaveAttribute('data-glass-renderer', 'none');
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'github');
+  await page.evaluate(() => Reflect.get(window, 'glassTest').cleanup());
 });
 
 test('loads palettes on demand and ignores an older theme selection that finishes late', async ({ page }) => {

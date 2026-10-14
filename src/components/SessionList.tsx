@@ -2,13 +2,14 @@ import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowRight,
   Check,
-  ChevronRight,
   Folder,
   GitBranch,
   MessageSquare,
   Plus,
   RefreshCw,
   Search,
+  SlidersHorizontal,
+  Star,
   Terminal,
 } from 'lucide-react';
 import clsx from 'clsx';
@@ -16,66 +17,72 @@ import { usePocket } from '../store/PocketProvider';
 import { folderName, timeAgo } from '../lib/format';
 import { Button, EmptyState, IconButton, Modal } from './ui';
 import type { Session } from '../types';
+import { sessionActivity } from '../lib/session-tree';
 import {
   defaultSessionFilters,
   filterSessions,
-  groupSessions,
   matchesSearch,
   stableSessionOrder,
 } from '../lib/session-search';
 
 export function SessionRow({ session }: { session: Session }) {
-  const { data, openSession } = usePocket();
-  const waiting =
-    data.questions.some((item) => item.sessionID === session.id) ||
-    data.permissions.some((item) => item.sessionID === session.id);
+  const { data, openSession, favoriteState, toggleFavorite, perform } = usePocket();
+  const activity = sessionActivity(data);
+  const waiting = activity.waiting.has(session.id);
   const status = data.statuses[session.id]?.type;
-  const busy = status === 'busy' || status === 'retry';
+  const busy = activity.busy.has(session.id);
+  const favorite = favoriteState.ids.has(session.id);
   return (
-    <button
-      className={`session-row ${waiting ? 'session-awaiting' : ''}`}
-      onClick={() => openSession(session)}
-    >
-      <span className={clsx('session-icon', busy && 'session-icon-live', waiting && 'session-icon-wait')}>
-        {waiting ? <MessageSquare size={20} /> : busy ? <Terminal size={20} /> : <GitBranch size={20} />}
-      </span>
-      <span className="session-main">
-        <span className="session-title">{session.title || 'Новая сессия'}</span>
-        <span className="session-subtitle">
-          <span>{folderName(session.directory)}</span>
-          <span>·</span>
-          <span>{timeAgo(session.time.updated)}</span>
+    <div className={`session-row ${waiting ? 'session-awaiting' : ''}`}>
+      <button className="session-open" onClick={() => openSession(session)}>
+        <span className={clsx('session-icon', busy && 'session-icon-live', waiting && 'session-icon-wait')}>
+          {waiting ? <MessageSquare size={20} /> : busy ? <Terminal size={20} /> : <GitBranch size={20} />}
         </span>
-        <span className="session-meta">
-          <span className={`status-pill ${waiting ? 'status-wait' : busy ? 'status-live' : 'status-idle'}`}>
-            {waiting ? (
-              <MessageSquare size={12} />
-            ) : busy ? (
-              <span className="live-dot" />
-            ) : (
-              <Check size={12} />
-            )}{' '}
-            {session.time.archived
-              ? 'В архиве'
-              : waiting
-                ? 'Ждёт тебя'
-                : status === 'retry'
-                  ? 'Повтор запроса'
-                  : busy
-                    ? 'Работает'
-                    : 'Готово'}
+        <span className="session-main">
+          <span className="session-title" id={`session-title-${session.id}`}>
+            {session.title || 'Новая сессия'}
           </span>
-          {session.summary && (
-            <span className="diff-summary">
-              <span>+{session.summary.additions}</span>
-              <span>−{session.summary.deletions}</span>
+          <span className="session-subtitle">
+            <span>{folderName(session.directory)}</span>
+            <span>·</span>
+            <span>{timeAgo(session.time.updated)}</span>
+          </span>
+          {(waiting || busy || Boolean(session.time.archived)) && (
+            <span className="session-meta">
+              <span
+                className={`status-pill ${waiting ? 'status-wait' : busy ? 'status-live' : 'status-idle'}`}
+              >
+                {waiting ? (
+                  <MessageSquare size={12} />
+                ) : busy ? (
+                  <span className="live-dot" />
+                ) : (
+                  <Check size={12} />
+                )}{' '}
+                {session.time.archived
+                  ? 'В архиве'
+                  : waiting
+                    ? 'Ждёт тебя'
+                    : status === 'retry'
+                      ? 'Повтор запроса'
+                      : busy
+                        ? 'Работает'
+                        : 'Готово'}
+              </span>
             </span>
           )}
-          {session.parentID && <span className="subtask-tag">Подзадача</span>}
         </span>
-      </span>
-      <ChevronRight size={18} className="session-chevron" />
-    </button>
+      </button>
+      <button
+        className="favorite-button"
+        aria-label={favorite ? 'Убрать из избранного' : 'В избранное'}
+        aria-describedby={`session-title-${session.id}`}
+        aria-pressed={favorite}
+        onClick={() => void perform(() => toggleFavorite(session))}
+      >
+        <Star size={19} fill={favorite ? 'currentColor' : 'none'} />
+      </button>
+    </div>
   );
 }
 
@@ -176,17 +183,32 @@ export function NewSession({ onClose }: { onClose: () => void }) {
 }
 
 export function SessionsPage() {
-  const { data, refresh, perform, refreshing, status, sessionFilters, setSessionFilters, sessionListView } =
-    usePocket();
-  const { search, filter, project, children } = sessionFilters;
+  const {
+    data,
+    refresh,
+    perform,
+    refreshing,
+    status,
+    sessionFilters,
+    setSessionFilters,
+    sessionListView,
+    favoriteState,
+  } = usePocket();
+  const { search, filter, project, favoritesOnly } = sessionFilters;
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [visibleCount, setVisibleCount] = useState(sessionListView.current.visible);
   const [newOpen, setNewOpen] = useState(false);
   const [pull, setPull] = useState(0);
   const pullStart = useRef<number | undefined>(undefined);
   const { sessions: allSessions, statuses, questions, permissions } = data;
   const matches = useMemo(
-    () => filterSessions({ sessions: allSessions, statuses, questions, permissions }, sessionFilters),
-    [allSessions, statuses, questions, permissions, sessionFilters],
+    () =>
+      filterSessions(
+        { sessions: allSessions, statuses, questions, permissions },
+        sessionFilters,
+        favoriteState.ids,
+      ),
+    [allSessions, statuses, questions, permissions, sessionFilters, favoriteState.ids],
   );
   const ordered = useMemo(
     () => stableSessionOrder(allSessions, sessionListView.current.order),
@@ -208,9 +230,8 @@ export function SessionsPage() {
   useLayoutEffect(() => {
     sessionListView.current.visible = visibleCount;
   }, [visibleCount, sessionListView]);
-  const groups = groupSessions(sessions.slice(0, visibleCount));
   const folders = useMemo(
-    () => [...new Set(data.sessions.map((item) => item.directory))].sort(),
+    () => [...new Set(data.sessions.filter((item) => !item.parentID).map((item) => item.directory))].sort(),
     [data.sessions],
   );
   const updateFilters = (patch: Partial<typeof sessionFilters>) => {
@@ -275,72 +296,84 @@ export function SessionsPage() {
         )}
       </label>
       <div className="segmented session-filters">
-        {(
-          [
-            ['all', 'Все'],
-            ['busy', 'В работе'],
-            ['waiting', 'Ждут ответа'],
-            ['archived', 'Архив'],
-          ] as const
-        ).map(([value, label]) => (
-          <button
-            key={value}
-            aria-pressed={filter === value}
-            className={filter === value ? 'active' : ''}
-            onClick={() => updateFilters({ filter: value })}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-      <div className="session-scope">
-        <select
-          aria-label="Фильтр по проекту"
-          value={project}
-          onChange={(event) => updateFilters({ project: event.target.value })}
+        <button
+          aria-pressed={!favoritesOnly}
+          className={!favoritesOnly ? 'active' : ''}
+          onClick={() => updateFilters({ favoritesOnly: false })}
         >
-          <option value="">Все проекты</option>
-          {folders.map((folder) => (
-            <option key={folder} value={folder}>
-              {folder}
-            </option>
-          ))}
-        </select>
-        <label className="subtask-filter">
-          <input
-            type="checkbox"
-            checked={children}
-            onChange={(event) => updateFilters({ children: event.target.checked })}
-          />
-          С подзадачами
-        </label>
+          Все
+        </button>
+        <button
+          aria-pressed={favoritesOnly}
+          className={favoritesOnly ? 'active' : ''}
+          onClick={() => updateFilters({ favoritesOnly: true })}
+        >
+          Избранное
+        </button>
+        <button
+          aria-label="Фильтры сессий"
+          aria-haspopup="dialog"
+          aria-expanded={filtersOpen}
+          onClick={() => setFiltersOpen(true)}
+        >
+          <SlidersHorizontal size={16} /> Фильтры{filter !== 'all' || project ? ' ·' : ''}
+        </button>
       </div>
+      {filtersOpen && (
+        <Modal title="Фильтры сессий" onClose={() => setFiltersOpen(false)}>
+          <div className="segmented session-filters">
+            {(
+              [
+                ['all', 'Все'],
+                ['busy', 'В работе'],
+                ['waiting', 'Ждут ответа'],
+                ['archived', 'Архив'],
+              ] as const
+            ).map(([value, label]) => (
+              <button
+                key={value}
+                aria-pressed={filter === value}
+                className={filter === value ? 'active' : ''}
+                onClick={() => updateFilters({ filter: value })}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <div className="session-scope">
+            <select
+              aria-label="Фильтр по проекту"
+              value={project}
+              onChange={(event) => updateFilters({ project: event.target.value })}
+            >
+              <option value="">Все проекты</option>
+              {folders.map((folder) => (
+                <option key={folder} value={folder}>
+                  {folder}
+                </option>
+              ))}
+            </select>
+          </div>
+          <Button onClick={() => setFiltersOpen(false)}>Готово</Button>
+        </Modal>
+      )}
       <section className="session-feed" aria-label="Список сессий">
         {sessions.length ? (
-          groups.map(([directory, items]) => (
-            <section className="session-group" key={directory} aria-label={`Проект ${directory}`}>
-              <h2 title={directory}>
-                <Folder size={16} />
-                {folderName(directory)}
-                <small>{items.length}</small>
-              </h2>
-              {items.map((session) => (
-                <SessionRow key={session.id} session={session} />
-              ))}
-            </section>
-          ))
+          sessions.slice(0, visibleCount).map((session) => <SessionRow key={session.id} session={session} />)
         ) : (
           <EmptyState
             icon={<Terminal size={29} />}
             title={
               search
                 ? 'Сессии не найдены'
-                : filter !== 'all'
-                  ? 'Нет сессий по выбранному фильтру'
-                  : 'Нет сессий'
+                : favoritesOnly
+                  ? 'Нет избранных сессий'
+                  : filter !== 'all'
+                    ? 'Нет сессий по выбранному фильтру'
+                    : 'Нет сессий'
             }
             action={
-              !search && !project && filter === 'all' ? (
+              !search && !project && filter === 'all' && !favoritesOnly ? (
                 <Button onClick={() => setNewOpen(true)}>
                   Создать сессию
                   <Plus size={19} />
@@ -352,9 +385,11 @@ export function SessionsPage() {
               )
             }
           >
-            {search
-              ? 'Попробуй название проекта или другую часть заголовка.'
-              : 'Сессии с компьютера появятся здесь автоматически.'}
+            {favoritesOnly
+              ? 'Отметь сессию звёздочкой в общем списке. Избранное сохраняется для этого подключения.'
+              : search
+                ? 'Попробуй название проекта или другую часть заголовка.'
+                : 'Сессии с компьютера появятся здесь автоматически.'}
           </EmptyState>
         )}
       </section>

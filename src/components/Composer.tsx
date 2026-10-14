@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { ArrowUp, ChevronDown, Command as CommandIcon, Mic, Paperclip, Square, X } from 'lucide-react';
 import type { PluginListenerHandle } from '@capacitor/core';
 import { Keyboard } from '@capacitor/keyboard';
@@ -8,7 +8,9 @@ import { isNative, PocketNative } from '../lib/native';
 import { useComposerDraft } from '../store/drafts';
 import { captureDiagnostic } from '../lib/diagnostics';
 import type { Command, Session } from '../types';
-import { IconButton } from './ui';
+import { ExternalLink, IconButton, KeyboardDismiss, Modal } from './ui';
+import { commandCatalog, commandSuggestions, type SlashCommand } from '../lib/commands';
+import { useSessionCommands } from './useSessionCommands';
 import { ModelPicker } from './ModelPicker';
 import { SessionOptions } from './SessionOptions';
 import { prepareAttachment, type Attachment } from '../lib/attachments';
@@ -26,6 +28,7 @@ export function Composer({ session }: { session: Session }) {
     notify,
     loadMessages,
     haptic,
+    isCurrentClient,
   } = usePocket();
   const storageKey = `occ.draft.${client?.connection.id ?? 'none'}.${session.id}`;
   const {
@@ -46,6 +49,10 @@ export function Composer({ session }: { session: Session }) {
   const [showModels, setShowModels] = useState(false);
   const [showOptions, setShowOptions] = useState(false);
   const [commands, setCommands] = useState<Command[]>([]);
+  const catalog = useMemo(() => commandCatalog(commands), [commands]);
+  const [commandIndex, setCommandIndex] = useState(0);
+  const [hideCommands, setHideCommands] = useState(false);
+  const { runBuiltin, sharedURL, setSharedURL } = useSessionCommands(session, () => setShowModels(true));
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const filesRef = useRef<HTMLInputElement>(null);
   const speech = useRef<PluginListenerHandle | undefined>(undefined);
@@ -101,21 +108,30 @@ export function Composer({ session }: { session: Session }) {
       (!draft.trim() && !attachments.length) ||
       drafts.get(storageKey).sending ||
       preparingFiles ||
-      busy ||
+      stopping ||
       speechPhase.current !== 'idle'
     )
       return;
     drafts.update(storageKey, { sending: true });
     const text = draft.trim();
     const command = text.startsWith('/')
-      ? commands.find((item) => text.split(/\s/)[0] === `/${item.name}`)
+      ? catalog.find((item) => text.split(/\s/)[0] === `/${item.name}`)
       : undefined;
+    let restoredText = '';
     const success = await perform(async () => {
       await speech.current?.remove();
       speech.current = undefined;
       setSpeechPhase('idle');
       const messageID = `msg_${Date.now().toString(16)}${crypto.randomUUID().replaceAll('-', '').slice(0, 16)}`;
-      if (command) {
+      if (text.startsWith('/') && !command)
+        throw new Error('Команда не найдена. Введи / и выбери команду из списка.');
+      if (command?.builtin) {
+        if (busy && ['compact', 'undo', 'redo', 'fork'].includes(command.builtin))
+          throw new Error('Эта команда меняет историю. Дождись завершения текущего ответа.');
+        if (attachments.length || text.slice(command.name.length + 1).trim())
+          throw new Error('Эта встроенная команда выполняется без вложений и аргументов.');
+        restoredText = await runBuiltin(command.builtin);
+      } else if (command) {
         if (attachments.length)
           throw new Error('Для slash-команды удалите вложения или отправьте обычный промпт.');
         await client.request(`/session/${encodeURIComponent(session.id)}/command`, {
@@ -148,12 +164,12 @@ export function Composer({ session }: { session: Session }) {
       haptic();
     });
     if (success) {
-      drafts.update(storageKey, { text: '', attachments: [] });
+      drafts.update(storageKey, { text: restoredText, attachments: [] });
       await drafts.flush(storageKey);
       if (isNative && inputRef.current)
         void Keyboard.hide().catch((error: unknown) => notify(errorMessage(error), true));
       try {
-        await loadMessages(session);
+        if (isCurrentClient(client)) await loadMessages(session);
       } catch (error) {
         notify(`Сообщение отправлено. Не удалось обновить историю: ${errorMessage(error)}`, true);
       }
@@ -249,24 +265,58 @@ export function Composer({ session }: { session: Session }) {
     if (filesRef.current) filesRef.current.value = '';
   }
   function keyboard(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.nativeEvent.isComposing) return;
+    if (suggestions.length && !event.ctrlKey && !event.metaKey) {
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault();
+        setCommandIndex(
+          (index) => (index + (event.key === 'ArrowDown' ? 1 : -1) + suggestions.length) % suggestions.length,
+        );
+        return;
+      }
+      if (event.key === 'Enter' || event.key === 'Tab') {
+        event.preventDefault();
+        completeCommand(suggestions[commandIndex] ?? suggestions[0]!);
+        return;
+      }
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        setHideCommands(true);
+        return;
+      }
+    }
+    if (event.key === 'Enter' && !event.shiftKey && /^\/\S+\s/.test(draft)) {
+      event.preventDefault();
+      void send();
+      return;
+    }
     if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
       event.preventDefault();
       void send();
     }
   }
-  const suggestions =
-    draft.startsWith('/') && !draft.includes(' ')
-      ? commands.filter((item) => item.name.startsWith(draft.slice(1))).slice(0, 5)
-      : [];
+  const suggestions = hideCommands || listening || sending ? [] : commandSuggestions(catalog, draft);
+  const completeCommand = (command: SlashCommand) => {
+    setDraft(`/${command.name} `);
+    setCommandIndex(0);
+    inputRef.current?.focus({ preventScroll: true });
+  };
+  useEffect(() => {
+    document.getElementById(`slash-command-${commandIndex}`)?.scrollIntoView({ block: 'nearest' });
+  }, [commandIndex]);
   return (
     <div className="composer-wrap">
       {suggestions.length > 0 && (
-        <div className="command-suggestions">
-          {suggestions.map((command) => (
+        <div className="command-suggestions" role="listbox" id="slash-commands" aria-label="Команды OpenCode">
+          {suggestions.map((command, index) => (
             <button
               key={command.name}
+              id={`slash-command-${index}`}
+              role="option"
+              aria-selected={index === commandIndex}
+              onPointerDown={(event) => event.preventDefault()}
               disabled={listening || sending}
-              onClick={() => setDraft(`/${command.name} `)}
+              onClick={() => completeCommand(command)}
             >
               <CommandIcon size={15} />
               <strong>/{command.name}</strong>
@@ -275,14 +325,14 @@ export function Composer({ session }: { session: Session }) {
           ))}
         </div>
       )}
-      <div data-pocket-glass="composer" className={`composer ${listening ? 'composer-listening' : ''}`}>
+      <div className={`composer ${listening ? 'composer-listening' : ''}`}>
         {preparingFiles && <output className="form-hint">Подготовка вложений…</output>}
         {attachments.length > 0 && (
           <div className="composer-attachments">
             {attachments.map((file, index) => (
               <span key={index}>
                 <Paperclip size={13} />
-                {file.filename}
+                <span className="attachment-name">{file.filename}</span>
                 <IconButton
                   label={`Удалить ${file.filename}`}
                   disabled={sending}
@@ -299,9 +349,18 @@ export function Composer({ session }: { session: Session }) {
         <textarea
           ref={inputRef}
           aria-label="Промпт для OpenCode"
+          aria-autocomplete="list"
+          aria-controls={suggestions.length ? 'slash-commands' : undefined}
+          aria-activedescendant={
+            suggestions.length ? `slash-command-${Math.min(commandIndex, suggestions.length - 1)}` : undefined
+          }
           placeholder={listening ? 'Диктовка…' : 'Запрос…'}
           value={draft}
-          onChange={(event) => setDraft(event.target.value)}
+          onChange={(event) => {
+            setDraft(event.target.value);
+            setCommandIndex(0);
+            setHideCommands(false);
+          }}
           onScroll={(event) => {
             if (listening) {
               const input = event.currentTarget;
@@ -318,6 +377,7 @@ export function Composer({ session }: { session: Session }) {
           <div className="composer-selection">
             <button
               className="composer-model"
+              data-pocket-glass="model"
               aria-label="Модель и режим сессии"
               onClick={() => setShowOptions(true)}
             >
@@ -327,6 +387,7 @@ export function Composer({ session }: { session: Session }) {
             </button>
           </div>
           <div className="composer-buttons">
+            <KeyboardDismiss />
             <input
               ref={filesRef}
               type="file"
@@ -359,7 +420,7 @@ export function Composer({ session }: { session: Session }) {
             >
               {listening ? <Square size={17} fill="currentColor" /> : <Mic size={19} />}
             </IconButton>
-            {busy ? (
+            {busy && !draft.trim() && !attachments.length && !preparingFiles && !sending ? (
               <button
                 className="send-button stop-button"
                 aria-label="Остановить генерацию"
@@ -389,6 +450,7 @@ export function Composer({ session }: { session: Session }) {
                 disabled={
                   !draftLoaded ||
                   sending ||
+                  stopping ||
                   preparingFiles ||
                   listening ||
                   (!draft.trim() && !attachments.length)
@@ -425,6 +487,11 @@ export function Composer({ session }: { session: Session }) {
         </div>
       )}
       {showModels && <ModelPicker onClose={() => setShowModels(false)} />}
+      {sharedURL && (
+        <Modal title="Ссылка на диалог" onClose={() => setSharedURL(undefined)}>
+          <ExternalLink href={sharedURL}>Открыть общий диалог</ExternalLink>
+        </Modal>
+      )}
       {showOptions && (
         <SessionOptions
           onClose={() => setShowOptions(false)}

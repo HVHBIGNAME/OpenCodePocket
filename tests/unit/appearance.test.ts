@@ -1,8 +1,25 @@
 import { describe, expect, it } from 'vitest';
 import { parseAppearance, themes } from '../../src/lib/appearance';
 import { loadTheme } from '../../src/themes/loader';
+import { glassRenderer } from '../../src/lib/glass';
 
 describe('appearance preferences', () => {
+  it('migrates glass into a separate effect and only enables a supported native renderer', () => {
+    expect(parseAppearance({ theme: 'liquid-glass', scheme: 'light' }, true)).toEqual({
+      theme: 'mercury',
+      scheme: 'light',
+      mode: 'light',
+      nativeGlass: true,
+    });
+    expect(parseAppearance({ theme: 'github', nativeGlass: true }, true).theme).toBe('github');
+    expect(glassRenderer(true, true, false)).toBe('native');
+    for (const [enabled, supported, reduced] of [
+      [true, false, false],
+      [true, true, true],
+      [false, true, false],
+    ])
+      expect(glassRenderer(enabled!, supported!, reduced!)).toBe('none');
+  });
   it('restores known themes and resolves the system color scheme', () => {
     expect(parseAppearance({ theme: 'catppuccin', scheme: 'system' }, false)).toEqual({
       theme: 'catppuccin',

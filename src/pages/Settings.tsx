@@ -20,6 +20,7 @@ import type { Config, Device } from '../types';
 import { DiagnosticSettings } from '../components/DiagnosticSettings';
 import { AppearanceSettings } from '../components/AppearanceSettings';
 import { NotificationSettings } from '../components/NotificationSettings';
+import { UpdateSettings } from '../components/UpdateSettings';
 
 const permissionSchema = z.union([
   z.enum(['ask', 'allow', 'deny']),
@@ -36,6 +37,10 @@ const tools = [
   ['task', 'Запуск подзадач'],
   ['external_directory', 'Внешние папки'],
 ] as const;
+
+function permissionPreset(mode: 'ask' | 'allow'): Config['permission'] {
+  return { read: 'allow', edit: mode, bash: 'ask', task: mode, webfetch: mode, external_directory: 'ask' };
+}
 
 export function Settings() {
   const { client, preferences, setPreferences, setConnectOpen, setScreen, config, saveConfig, perform } =
@@ -96,36 +101,12 @@ export function Settings() {
               </div>
             </div>
             <div className="permission-presets">
-              <button
-                disabled={!client}
-                onClick={() =>
-                  setPendingPermission({
-                    read: 'allow',
-                    edit: 'ask',
-                    bash: 'ask',
-                    task: 'ask',
-                    webfetch: 'ask',
-                    external_directory: 'ask',
-                  })
-                }
-              >
+              <button disabled={!client} onClick={() => setPendingPermission(permissionPreset('ask'))}>
                 <ShieldCheck size={20} />
                 <strong>Под контролем</strong>
                 <span>Спрашивать перед действиями</span>
               </button>
-              <button
-                disabled={!client}
-                onClick={() =>
-                  setPendingPermission({
-                    read: 'allow',
-                    edit: 'allow',
-                    bash: 'ask',
-                    task: 'allow',
-                    webfetch: 'allow',
-                    external_directory: 'ask',
-                  })
-                }
-              >
+              <button disabled={!client} onClick={() => setPendingPermission(permissionPreset('allow'))}>
                 <Check size={20} />
                 <strong>В потоке</strong>
                 <span>Правки — да, терминал — спросить</span>
@@ -224,6 +205,7 @@ export function Settings() {
           </section>
         </div>
         <aside className="settings-aside">
+          <UpdateSettings />
           <NotificationSettings />
           <DiagnosticSettings />
           <section className="panel settings-section">

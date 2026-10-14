@@ -1,13 +1,51 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const { request } = vi.hoisted(() => ({ request: vi.fn() }));
 vi.mock('@capacitor/core', () => ({ CapacitorHttp: { request } }));
 vi.mock('../../src/lib/native', () => ({ isNative: true, platform: 'ios', PocketNative: {} }));
 vi.mock('../../src/lib/diagnostics', () => ({ captureDiagnostic: vi.fn() }));
-import { http } from '../../src/lib/api';
+import { http, OpenCodeClient } from '../../src/lib/api';
 import { isAbortedTool, isGenerationCancelled } from '../../src/lib/session-errors';
 
 beforeEach(() => request.mockReset());
+afterEach(() => vi.useRealTimers());
 describe('native requests and cancellation', () => {
+  const client = new OpenCodeClient({
+    id: 'fixture',
+    name: 'fixture',
+    url: 'http://localhost:4141',
+    mode: 'bridge',
+    credential: 'fixture',
+  });
+  it('recovers a transient read without exceeding the original timeout', async () => {
+    vi.useFakeTimers();
+    request
+      .mockResolvedValueOnce({ status: 502, data: '{}' })
+      .mockResolvedValueOnce({ status: 200, data: '[]' });
+    const result = client.request('/provider', { timeoutMs: 1000 });
+    await vi.advanceTimersByTimeAsync(400);
+    await expect(result).resolves.toEqual([]);
+    expect(request).toHaveBeenCalledTimes(2);
+    expect(request.mock.calls[1]?.[0].connectTimeout).toBe(600);
+  });
+  it('never automatically retries a failed prompt or permission mutation', async () => {
+    request.mockResolvedValue({ status: 502, data: '{}' });
+    await expect(
+      client.request('/session/s/prompt_async', { method: 'POST', data: { parts: [] } }),
+    ).rejects.toMatchObject({ status: 502 });
+    expect(request).toHaveBeenCalledTimes(1);
+  });
+  it('cancels the waiting retry when its screen is closed', async () => {
+    vi.useFakeTimers();
+    const controller = new AbortController();
+    request.mockResolvedValue({ status: 503, data: '{}' });
+    const result = client.request('/file', { signal: controller.signal });
+    const rejected = expect(result).rejects.toMatchObject({ name: 'AbortError' });
+    await vi.advanceTimersByTimeAsync(100);
+    controller.abort();
+    await rejected;
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(request).toHaveBeenCalledTimes(1);
+  });
   it('rejects successful tunnel HTML responses instead of passing a string to the UI', async () => {
     request.mockResolvedValue({ status: 200, data: '<html>login</html>' });
     await expect(http('https://example.test/api')).rejects.toMatchObject({ status: 502 });

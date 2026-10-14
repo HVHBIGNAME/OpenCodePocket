@@ -8,6 +8,8 @@ import { SessionsPage } from './components/SessionList';
 import { captureDiagnostic } from './lib/diagnostics';
 import { installKeyboardHandling } from './lib/keyboard';
 import { installGlassHandling } from './lib/glass';
+import { installUpdateChecking } from './lib/updates';
+import { UpdateNotice, UpdateSettings } from './components/UpdateSettings';
 
 const Chat = lazy(() => import('./pages/Chat').then((module) => ({ default: module.Chat })));
 const Models = lazy(() => import('./pages/Models').then((module) => ({ default: module.Models })));
@@ -23,6 +25,7 @@ const navigation = [
 
 export function App() {
   const [errorDetails, setErrorDetails] = useState<string>();
+  const [updatesOpen, setUpdatesOpen] = useState(false);
   const {
     ready,
     screen,
@@ -41,6 +44,7 @@ export function App() {
   }, [screen, client]);
   useEffect(installKeyboardHandling, []);
   useEffect(installGlassHandling, []);
+  useEffect(installUpdateChecking, []);
   if (!ready)
     return (
       <div className="splash">
@@ -91,8 +95,14 @@ export function App() {
           )}
         </Suspense>
       </main>
+      {!chatting && <UpdateNotice onOpen={() => setUpdatesOpen(true)} />}
+      {updatesOpen && (
+        <Modal title="Обновление Pocket" onClose={() => setUpdatesOpen(false)}>
+          <UpdateSettings />
+        </Modal>
+      )}
       {!chatting && (
-        <nav className="mobile-nav" data-pocket-glass="navigation" aria-label="Главная навигация">
+        <nav className="mobile-nav" aria-label="Главная навигация">
           {navigation.map(({ id, name, icon: Icon }) => (
             <button
               key={id}
