@@ -25,9 +25,11 @@ export function installGlassHandling() {
   let serialized = '';
   let queue = Promise.resolve();
   let targets: HTMLElement[] = [];
+  let keyboardAnimationUntil = 0;
 
   const measure = () => {
     if (disposed || root.dataset.glassRenderer !== 'native') return;
+    if (performance.now() < keyboardAnimationUntil) frame = requestAnimationFrame(measure);
     const viewport = window.visualViewport;
     const regions: GlassRegion[] =
       viewport && Math.abs(viewport.scale - 1) > 0.01
@@ -78,6 +80,11 @@ export function installGlassHandling() {
   const schedule = () => {
     cancelAnimationFrame(frame);
     frame = requestAnimationFrame(measure);
+  };
+  const keyboardFrame = (event: Event) => {
+    const duration = (event as CustomEvent<{ duration?: number }>).detail?.duration ?? 0;
+    keyboardAnimationUntil = performance.now() + Math.min(1000, Math.max(0, duration)) + 50;
+    schedule();
   };
   const resize = new ResizeObserver(schedule);
   const discover = () => {
@@ -155,6 +162,7 @@ export function installGlassHandling() {
       .catch((error: unknown) => captureDiagnostic(error, { kind: 'action' }));
   for (const media of [contrast, transparency, motion]) media.addEventListener('change', reconcile);
   window.addEventListener('resize', schedule);
+  window.addEventListener('pocket:keyboard-frame', keyboardFrame);
   window.addEventListener('scroll', schedule, { passive: true });
   window.visualViewport?.addEventListener('resize', schedule);
   window.visualViewport?.addEventListener('scroll', schedule);
@@ -167,6 +175,7 @@ export function installGlassHandling() {
     resize.disconnect();
     for (const media of [contrast, transparency, motion]) media.removeEventListener('change', reconcile);
     window.removeEventListener('resize', schedule);
+    window.removeEventListener('pocket:keyboard-frame', keyboardFrame);
     window.removeEventListener('scroll', schedule);
     window.visualViewport?.removeEventListener('resize', schedule);
     window.visualViewport?.removeEventListener('scroll', schedule);

@@ -36,7 +36,13 @@ export function Composer({ session }: { session: Session }) {
     preparing: preparingFiles,
   } = useComposerDraft(drafts, storageKey);
   const setDraft = (text: string) => drafts.update(storageKey, { text });
-  const [listening, setListening] = useState(false);
+  const [speechState, setSpeechState] = useState<'idle' | 'starting' | 'listening' | 'finishing'>('idle');
+  const speechPhase = useRef(speechState);
+  const listening = speechState !== 'idle';
+  const setSpeechPhase = (value: typeof speechState) => {
+    speechPhase.current = value;
+    setSpeechState(value);
+  };
   const [showModels, setShowModels] = useState(false);
   const [showOptions, setShowOptions] = useState(false);
   const [commands, setCommands] = useState<Command[]>([]);
@@ -44,6 +50,10 @@ export function Composer({ session }: { session: Session }) {
   const filesRef = useRef<HTMLInputElement>(null);
   const speech = useRef<PluginListenerHandle | undefined>(undefined);
   const speechBase = useRef('');
+  const followDictation = useRef(true);
+  const speechEdit = useRef(false);
+  const speechID = useRef<string | undefined>(undefined);
+  const speechTimeout = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const [stopping, setStopping] = useState(false);
   const stoppingRef = useRef(false);
   const busy = data.statuses[session.id]?.type === 'busy' || data.statuses[session.id]?.type === 'retry';
@@ -52,17 +62,24 @@ export function Composer({ session }: { session: Session }) {
   );
   useEffect(() => {
     return () => {
+      speechID.current = undefined;
+      clearTimeout(speechTimeout.current);
       void speech.current?.remove();
       if (isNative)
-        void PocketNative.stopSpeech().catch((error: unknown) =>
+        void PocketNative.stopSpeech({ cancel: true }).catch((error: unknown) =>
           captureDiagnostic(error, { kind: 'action' }),
         );
     };
   }, []);
   useEffect(() => {
     if (inputRef.current) {
+      const previousTop = inputRef.current.scrollTop;
       inputRef.current.style.height = 'auto';
       inputRef.current.style.height = `${Math.min(inputRef.current.scrollHeight, 180)}px`;
+      if (speechEdit.current) {
+        inputRef.current.scrollTop = followDictation.current ? inputRef.current.scrollHeight : previousTop;
+        speechEdit.current = false;
+      }
     }
   }, [draft, draftLoaded]);
   useEffect(() => {
@@ -85,7 +102,7 @@ export function Composer({ session }: { session: Session }) {
       drafts.get(storageKey).sending ||
       preparingFiles ||
       busy ||
-      listening
+      speechPhase.current !== 'idle'
     )
       return;
     drafts.update(storageKey, { sending: true });
@@ -96,7 +113,7 @@ export function Composer({ session }: { session: Session }) {
     const success = await perform(async () => {
       await speech.current?.remove();
       speech.current = undefined;
-      setListening(false);
+      setSpeechPhase('idle');
       const messageID = `msg_${Date.now().toString(16)}${crypto.randomUUID().replaceAll('-', '').slice(0, 16)}`;
       if (command) {
         if (attachments.length)
@@ -149,27 +166,70 @@ export function Composer({ session }: { session: Session }) {
       notify('Голосовой ввод доступен в Android/iOS-приложении.', true);
       return;
     }
-    if (listening) {
+    if (speechPhase.current === 'starting' || speechPhase.current === 'finishing') return;
+    if (speechPhase.current === 'listening') {
+      setSpeechPhase('finishing');
+      const id = speechID.current;
       await perform(() => PocketNative.stopSpeech());
-      setListening(false);
+      speechTimeout.current = setTimeout(() => {
+        if (speechID.current !== id || speechPhase.current !== 'finishing') return;
+        speechID.current = undefined;
+        setSpeechPhase('idle');
+        void perform(() => PocketNative.stopSpeech({ cancel: true }));
+        void speech.current?.remove();
+      }, 4000);
       return;
     }
-    await speech.current?.remove();
-    void Keyboard.hide().catch(() => undefined);
-    speechBase.current = draft;
-    speech.current = await PocketNative.addListener('speech', (event) => {
-      if (event.text !== undefined)
-        setDraft(`${speechBase.current}${speechBase.current ? ' ' : ''}${event.text}`);
-      if (event.error) {
-        notify(event.error, true);
-        setListening(false);
+    await beginDictation();
+  }
+
+  async function beginDictation() {
+    const id = crypto.randomUUID();
+    speechID.current = id;
+    setSpeechPhase('starting');
+    clearTimeout(speechTimeout.current);
+    let listener: PluginListenerHandle | undefined;
+    try {
+      await speech.current?.remove();
+      void Keyboard.hide().catch(() => undefined);
+      inputRef.current?.blur();
+      speechBase.current = drafts.get(storageKey).text;
+      followDictation.current = true;
+      listener = await PocketNative.addListener('speech', (event) => {
+        if (speechID.current !== id || (event.id && event.id !== id)) return;
+        if (event.text) {
+          speechEdit.current = true;
+          setDraft(
+            `${speechBase.current}${speechBase.current && !/\s$/.test(speechBase.current) ? ' ' : ''}${event.text}`,
+          );
+        }
+        if (event.state === 'finishing') setSpeechPhase('finishing');
+        if (event.error) notify(event.error, true);
+        if (event.final || event.error) {
+          speechID.current = undefined;
+          clearTimeout(speechTimeout.current);
+          setSpeechPhase('idle');
+          void speech.current?.remove();
+        }
+      });
+      if (speechID.current !== id) {
+        await listener.remove();
+        return;
       }
-      if (event.final) setListening(false);
-    });
-    const started = await perform(() =>
-      PocketNative.startSpeech({ locale: preferences.speechLocale, offline: preferences.offlineSpeech }),
-    );
-    setListening(started);
+      speech.current = listener;
+      await PocketNative.startSpeech({
+        id,
+        locale: preferences.speechLocale,
+        offline: preferences.offlineSpeech,
+      });
+      if (speechID.current === id && speechPhase.current === 'starting') setSpeechPhase('listening');
+    } catch (error) {
+      if (speechID.current !== id) return;
+      speechID.current = undefined;
+      setSpeechPhase('idle');
+      await listener?.remove();
+      notify(errorMessage(error), true);
+    }
   }
 
   async function addFiles(list: FileList | null) {
@@ -203,7 +263,11 @@ export function Composer({ session }: { session: Session }) {
       {suggestions.length > 0 && (
         <div className="command-suggestions">
           {suggestions.map((command) => (
-            <button key={command.name} onClick={() => setDraft(`/${command.name} `)}>
+            <button
+              key={command.name}
+              disabled={listening || sending}
+              onClick={() => setDraft(`/${command.name} `)}
+            >
               <CommandIcon size={15} />
               <strong>/{command.name}</strong>
               <span>{command.description}</span>
@@ -238,10 +302,17 @@ export function Composer({ session }: { session: Session }) {
           placeholder={listening ? 'Диктовка…' : 'Запрос…'}
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
+          onScroll={(event) => {
+            if (listening) {
+              const input = event.currentTarget;
+              followDictation.current = input.scrollHeight - input.scrollTop - input.clientHeight < 24;
+            }
+          }}
           onKeyDown={keyboard}
           rows={2}
           spellCheck={false}
           disabled={!draftLoaded || sending}
+          readOnly={listening}
         />
         <div className="composer-controls">
           <div className="composer-selection">
@@ -272,12 +343,21 @@ export function Composer({ session }: { session: Session }) {
               <Paperclip size={19} />
             </IconButton>
             <IconButton
-              label={listening ? 'Завершить диктовку' : 'Надиктовать промпт'}
+              label={
+                speechState === 'starting'
+                  ? 'Включаем микрофон'
+                  : speechState === 'finishing'
+                    ? 'Завершаем диктовку'
+                    : listening
+                      ? 'Завершить диктовку'
+                      : 'Надиктовать промпт'
+              }
               className={listening ? 'recording' : ''}
-              disabled={sending || !draftLoaded}
+              aria-pressed={listening}
+              disabled={sending || !draftLoaded || speechState === 'starting' || speechState === 'finishing'}
               onClick={() => void perform(startSpeech)}
             >
-              <Mic size={19} />
+              {listening ? <Square size={17} fill="currentColor" /> : <Mic size={19} />}
             </IconButton>
             {busy ? (
               <button
@@ -327,7 +407,13 @@ export function Composer({ session }: { session: Session }) {
             {listening ? (
               <>
                 <span className="record-dot" />
-                {preferences.offlineSpeech ? 'Распознавание на устройстве' : 'Системное распознавание'}
+                {speechState === 'finishing'
+                  ? 'Сохраняю последние слова…'
+                  : speechState === 'starting'
+                    ? 'Включаю микрофон…'
+                    : preferences.offlineSpeech
+                      ? 'Распознавание на устройстве'
+                      : 'Системное распознавание'}
               </>
             ) : agent === 'plan' ? (
               'Режим планирования'

@@ -141,6 +141,10 @@ jobs:
       - run: npm run build:web
       - run: npm run assets
       - run: npx cap sync ios
+      - name: Check continuous dictation transcript
+        run: |
+          swiftc ios/App/App/PocketTranscript.swift tests/native/TranscriptTest.swift -o "$RUNNER_TEMP/pocket-transcript-tests"
+          "$RUNNER_TEMP/pocket-transcript-tests"
       - name: Build arm64 iOS application
         run: |
           VERSION=$(node -p "require('./package.json').version")

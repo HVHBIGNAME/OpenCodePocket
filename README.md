@@ -32,18 +32,18 @@
 
 ## Установка
 
-**Android:** [скачать подписанный APK](https://github.com/HVHBIGNAME/OpenCodePocket/releases/download/v1.0.4/OpenCodePocket-1.0.4-android.apk). APK подписан постоянным ключом проекта. Android 8+.
+**Android:** [скачать подписанный APK](https://github.com/HVHBIGNAME/OpenCodePocket/releases/download/v1.0.5/OpenCodePocket-1.0.5-android.apk). APK подписан постоянным ключом проекта. Android 8+.
 
-**iOS:** [скачать IPA](https://github.com/HVHBIGNAME/OpenCodePocket/releases/download/v1.0.4/OpenCodePocket-1.0.4-ios-unsigned.ipa). Это скомпилированный arm64 IPA для iOS 15+, **без Apple-подписи**. Для установки нужна самостоятельная подпись через Sideloadly/AltStore или свою Apple Developer-команду. Фоновый APNs требует подходящих entitlements и provisioning profile. [Подробнее](docs/build.md#ios).
+**iOS:** [скачать IPA](https://github.com/HVHBIGNAME/OpenCodePocket/releases/download/v1.0.5/OpenCodePocket-1.0.5-ios-unsigned.ipa). Это скомпилированный arm64 IPA для iOS 15+, **без Apple-подписи**. Для установки нужна самостоятельная подпись через Sideloadly/AltStore или свою Apple Developer-команду. Фоновый APNs требует подходящих entitlements и provisioning profile. [Подробнее](docs/build.md#ios).
 
 ### Компьютер → телефон
 
-**Windows:** [скачай `Install-Pocket.cmd`](https://github.com/HVHBIGNAME/OpenCodePocket/releases/download/v1.0.4/Install-Pocket.cmd) и запусти двойным щелчком. Установщик сам скачает Node.js, если его нет, и `cloudflared`, проверит контрольные суммы и подключит плагин.
+**Windows:** [скачай `Install-Pocket.cmd`](https://github.com/HVHBIGNAME/OpenCodePocket/releases/download/v1.0.5/Install-Pocket.cmd) и запусти двойным щелчком. Установщик сам скачает Node.js, если его нет, и `cloudflared`, проверит контрольные суммы и подключит плагин.
 
 **macOS / Linux:**
 
 ```sh
-curl -fsSL https://github.com/HVHBIGNAME/OpenCodePocket/releases/download/v1.0.4/install-pocket.sh | sh
+curl -fsSL https://github.com/HVHBIGNAME/OpenCodePocket/releases/download/v1.0.5/install-pocket.sh | sh
 ```
 
 1. После установки плагина **перезапусти OpenCode**. HTTP-порт настраивается автоматически, существующий порт сохраняется.
@@ -55,7 +55,7 @@ curl -fsSL https://github.com/HVHBIGNAME/OpenCodePocket/releases/download/v1.0.4
 Если Node.js уже установлен, доступна одна команда:
 
 ```sh
-npx --yes --package=https://github.com/HVHBIGNAME/OpenCodePocket/releases/download/v1.0.4/hvhbigname-occ-bridge-1.0.4.tgz occ-pocket install
+npx --yes --package=https://github.com/HVHBIGNAME/OpenCodePocket/releases/download/v1.0.5/hvhbigname-occ-bridge-1.0.5.tgz occ-pocket install
 ```
 
 Если OpenCode уже слушает порт, можно подключить мост без перезапуска:
@@ -69,6 +69,13 @@ occ-pocket start --upstream http://127.0.0.1:4096 --tunnel
 Свой туннель: `--url https://your-tunnel.example` вместо `--tunnel`. Локальная сеть/VPN: `--lan`. [Все сценарии →](docs/connect.md)
 
 ## Интерфейс
+
+### В версии 1.0.5
+
+- Свайп от левого края возвращает назад: из файла в список файлов, из вкладки в диалог, затем в родительскую сессию или список. Вкладки чата перелистываются горизонтально; нижние панели закрываются за ручку свайпом вниз.
+- Вертикальная прокрутка, выделение текста, поля ввода и горизонтальная прокрутка кода не запускают переход. Все действия доступны кнопками. Короткий жест отменяется с возвратом панели на место.
+- На iPhone чат и панели реагируют на раннее событие рамки клавиатуры с системной длительностью анимации. Открытая панель остаётся над клавиатурой; движение Liquid Glass отслеживается только во время её анимации.
+- iPhone-диктовка собирает фразы и задачи распознавания в общий текст, продолжает запись после системного окончания фразы и не обнуляет черновик пустым результатом. При остановке показывается «Сохраняю последние слова…»; редактирование и отправка становятся доступны после завершения.
 
 ### В версии 1.0.4
 

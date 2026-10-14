@@ -12,7 +12,7 @@ const config: CapacitorConfig = {
   plugins: {
     CapacitorHttp: { enabled: false },
     SystemBars: { style: SystemBarsStyle.Dark, initialViewportFitValueHint: 'cover' },
-    Keyboard: { resize: KeyboardResize.Native, style: KeyboardStyle.Dark },
+    Keyboard: { resize: KeyboardResize.None, style: KeyboardStyle.Dark },
   },
 };
 

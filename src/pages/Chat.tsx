@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
   ArrowDown,
   ArrowLeft,
@@ -27,8 +27,10 @@ import { Composer } from '../components/Composer';
 import { SessionDetails } from '../components/SessionDetails';
 import { ChatSearch } from '../components/ChatSearch';
 import type { MessageEntry, Session } from '../types';
+import { dragFeedback, useSwipe } from '../lib/gestures';
 
 const emptyMessages: MessageEntry[] = [];
+const chatTabs = ['chat', 'diff', 'todos', 'files'] as const;
 
 export function Chat() {
   const {
@@ -45,6 +47,7 @@ export function Chat() {
     refresh,
     refreshing,
     setConnectOpen,
+    haptic,
   } = usePocket();
   const [tab, setTab] = useState<'chat' | 'diff' | 'todos' | 'files'>('chat');
   const [actions, setActions] = useState(false);
@@ -65,6 +68,72 @@ export function Chat() {
   const previousSession = useRef<string | undefined>(undefined);
   const positions = chatPositions;
   const previousTab = useRef(tab);
+  const pageRef = useRef<HTMLDivElement>(null);
+  const backFromDetails = useRef<(() => void) | undefined>(undefined);
+  const [detailBackLabel, setDetailBackLabel] = useState('');
+  const onDetailBack = useCallback((handler?: () => void, label = '') => {
+    backFromDetails.current = handler;
+    setDetailBackLabel(label);
+  }, []);
+  const goBack = () => {
+    if (backFromDetails.current) {
+      backFromDetails.current();
+      return;
+    }
+    if (tab !== 'chat') {
+      setTab('chat');
+      return;
+    }
+    if (session?.parentID) void perform(() => openRelatedSession(session.parentID!, session.directory));
+    else setScreen('sessions');
+  };
+  const backAction = useRef(goBack);
+  useLayoutEffect(() => {
+    backAction.current = goBack;
+  });
+  useEffect(() => {
+    const back = (event: Event) => {
+      event.preventDefault();
+      backAction.current();
+    };
+    document.addEventListener('pocket:navigate-back', back);
+    return () => document.removeEventListener('pocket:navigate-back', back);
+  }, []);
+  const edgeSwipe = useRef(false);
+  useSwipe(pageRef, {
+    axis: 'x',
+    resetKey: `${selectedID}:${tab}`,
+    canStart: (target, x) => {
+      if (
+        document.querySelector('dialog[open]') ||
+        target.closest(
+          'pre, code, input, textarea, select, a, summary, [contenteditable="true"], .composer-wrap',
+        )
+      )
+        return false;
+      if (target.closest('button') && !target.closest('.chat-tabs')) return false;
+      edgeSwipe.current = x - (pageRef.current?.getBoundingClientRect().left ?? 0) <= 28;
+      return edgeSwipe.current || Boolean(target.closest('.chat-scroll, .details-scroll, .chat-tabs'));
+    },
+    onProgress: (distance) =>
+      dragFeedback(
+        pageRef.current,
+        'x',
+        edgeSwipe.current ? Math.max(0, Math.min(distance, 220)) : Math.max(-36, Math.min(distance, 36)),
+      ),
+    onSwipe: (direction) => {
+      if (edgeSwipe.current && direction > 0) {
+        haptic();
+        goBack();
+        return;
+      }
+      const next = chatTabs[chatTabs.indexOf(tab) - direction];
+      if (next) {
+        haptic();
+        setTab(next);
+      }
+    },
+  });
   const children = data.sessions
     .filter((item) => item.parentID === session?.id && !item.time.archived)
     .sort((a, b) => a.time.created - b.time.created || a.id.localeCompare(b.id));
@@ -121,15 +190,18 @@ export function Chat() {
     );
   const busy = data.statuses[session.id]?.type === 'busy' || data.statuses[session.id]?.type === 'retry';
   return (
-    <div className="chat-page">
+    <div className="chat-page" ref={pageRef}>
       <header className="chat-heading">
         <IconButton
-          label={session.parentID ? 'Назад к основной сессии' : 'Назад к сессиям'}
-          onClick={() =>
-            session.parentID
-              ? void perform(() => openRelatedSession(session.parentID!, session.directory))
-              : setScreen('sessions')
+          label={
+            detailBackLabel ||
+            (tab !== 'chat'
+              ? 'Назад к диалогу'
+              : session.parentID
+                ? 'Назад к основной сессии'
+                : 'Назад к сессиям')
           }
+          onClick={goBack}
         >
           <ArrowLeft size={20} />
         </IconButton>
@@ -339,7 +411,12 @@ export function Chat() {
         </>
       ) : (
         <div className="details-scroll">
-          <SessionDetails key={`${session.id}-${tab}`} session={session} tab={tab} />
+          <SessionDetails
+            key={`${session.id}-${tab}`}
+            session={session}
+            tab={tab}
+            onBackChange={onDetailBack}
+          />
         </div>
       )}
       {actions && <SessionActions session={session} onClose={() => setActions(false)} />}

@@ -3,6 +3,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -61,7 +62,9 @@ function usePocketState() {
   const sessionListView = useRef({ order: [] as string[], scroll: 0, visible: 60 });
   const chatPositions = useRef(new Map<string, { top: number; bottom: boolean }>());
   const dataRef = useRef(data);
-  dataRef.current = data;
+  useLayoutEffect(() => {
+    dataRef.current = data;
+  }, [data]);
   const [sessionFilters, setSessionFilters] = useState(defaultSessionFilters);
   const [historyLimits, setHistoryLimits] = useState<Record<string, number>>({});
   const [projects, setProjects] = useState<Project[]>([]);
@@ -95,7 +98,9 @@ function usePocketState() {
   const navigationSequence = useRef(0);
   const streamQueue = useRef(Promise.resolve());
   const session = data.sessions.find((item) => item.id === sessionID);
-  sessionRef.current = session;
+  useLayoutEffect(() => {
+    sessionRef.current = session;
+  }, [session]);
   useEffect(() => {
     attachDiagnosticClient(client);
     return () => attachDiagnosticClient(undefined);
@@ -591,6 +596,11 @@ function usePocketState() {
           return;
         }
         if (connectOpen) setConnectOpen(false);
+        else if (
+          screen === 'chat' &&
+          !document.dispatchEvent(new Event('pocket:navigate-back', { cancelable: true }))
+        )
+          return;
         else if (screen === 'chat' && sessionRef.current?.parentID) {
           void openRelatedSession(sessionRef.current.parentID, sessionRef.current.directory).catch(
             (error: unknown) => notify(errorMessage(error), true),

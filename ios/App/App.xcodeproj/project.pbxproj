@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		0CC000000000000000000019 /* PocketTranscript.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0CC000000000000000000009; };
 		0CC000000000000000000018 /* PocketGlassBackground.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0CC000000000000000000008; };
 		0CC000000000000000000016 /* PocketKeychain.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0CC000000000000000000006; };
 		0CC000000000000000000017 /* PocketMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0CC000000000000000000007; };
@@ -26,6 +27,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		0CC000000000000000000009 /* PocketTranscript.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PocketTranscript.swift; sourceTree = "<group>"; };
 		0CC000000000000000000008 /* PocketGlassBackground.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PocketGlassBackground.swift; sourceTree = "<group>"; };
 		0CC000000000000000000006 /* PocketKeychain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PocketKeychain.swift; sourceTree = "<group>"; };
 		0CC000000000000000000007 /* PocketMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PocketMetrics.swift; sourceTree = "<group>"; };
@@ -85,6 +87,7 @@
 				0CC000000000000000000001 /* PocketNativePlugin.swift */,
 				0CC000000000000000000002 /* PocketEventStream.swift */,
 				0CC000000000000000000003 /* PocketSpeech.swift */,
+				0CC000000000000000000009 /* PocketTranscript.swift */,
 				0CC000000000000000000004 /* PrivacyInfo.xcprivacy */,
 				0CC000000000000000000005 /* App.entitlements */,
 				9582B6822FE993A50072D4E8 /* SceneDelegate.swift */,
@@ -188,6 +191,7 @@
 				0CC000000000000000000011 /* PocketNativePlugin.swift in Sources */,
 				0CC000000000000000000012 /* PocketEventStream.swift in Sources */,
 				0CC000000000000000000013 /* PocketSpeech.swift in Sources */,
+				0CC000000000000000000019 /* PocketTranscript.swift in Sources */,
 				504EC3081FED79650016851F /* AppDelegate.swift in Sources */,
 				9582B6832FE993A70072D4E8 /* SceneDelegate.swift in Sources */,
 			);
@@ -330,14 +334,14 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 5;
+				CURRENT_PROJECT_VERSION = 6;
 				INFOPLIST_FILE = App/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0.4;
+				MARKETING_VERSION = 1.0.5;
 				OTHER_SWIFT_FLAGS = "$(inherited) \"-D\" \"COCOAPODS\" \"-DDEBUG\"";
 				PRODUCT_BUNDLE_IDENTIFIER = dev.hvhbigname.occ;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -352,14 +356,14 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 5;
+				CURRENT_PROJECT_VERSION = 6;
 				INFOPLIST_FILE = App/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0.4;
+				MARKETING_VERSION = 1.0.5;
 				PRODUCT_BUNDLE_IDENTIFIER = dev.hvhbigname.occ;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "";

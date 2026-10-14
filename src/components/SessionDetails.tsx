@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
   ArrowLeft,
   Check,
@@ -17,12 +17,22 @@ import { CodeBlockForFile } from './file-view';
 import { Button, EmptyState } from './ui';
 import { matchesSearch } from '../lib/session-search';
 
-export function SessionDetails({ session, tab }: { session: Session; tab: 'diff' | 'todos' | 'files' }) {
+export function SessionDetails({
+  session,
+  tab,
+  onBackChange,
+}: {
+  session: Session;
+  tab: 'diff' | 'todos' | 'files';
+  onBackChange?: (handler?: () => void, label?: string) => void;
+}) {
   const { client, data, setData } = usePocket();
   const diffs = data.diffs[session.id] ?? [];
   const todos = data.todos[session.id] ?? [];
   const liveRef = useRef(data);
-  liveRef.current = data;
+  useLayoutEffect(() => {
+    liveRef.current = data;
+  }, [data]);
   const [files, setFiles] = useState<FileNode[]>([]);
   const [path, setPath] = useState('');
   const [file, setFile] = useState<{ path: string; content: FileContent }>();
@@ -32,6 +42,25 @@ export function SessionDetails({ session, tab }: { session: Session; tab: 'diff'
   const [busy, setBusy] = useState(false);
   const [reload, setReload] = useState(0);
   const remoteQuery = tab === 'files' ? query.trim() : '';
+  const back = useCallback(() => {
+    if (filePath) {
+      setFilePath('');
+      setFile(undefined);
+    } else
+      setPath(
+        path
+          .replace(/[\\/]+$/, '')
+          .split(/[\\/]/)
+          .slice(0, -1)
+          .join('/'),
+      );
+  }, [filePath, path]);
+  useLayoutEffect(() => {
+    if (tab === 'files' && (filePath || path))
+      onBackChange?.(back, filePath ? 'Назад к файлам' : 'На уровень выше');
+    else onBackChange?.();
+    return () => onBackChange?.();
+  }, [tab, filePath, path, onBackChange, back]);
   useEffect(() => {
     if (!client) return;
     const controller = new AbortController();
@@ -225,22 +254,7 @@ export function SessionDetails({ session, tab }: { session: Session; tab: 'diff'
       {tab === 'files' && (
         <>
           {(path || filePath) && (
-            <Button
-              variant="ghost"
-              onClick={() => {
-                if (filePath) {
-                  setFilePath('');
-                  setFile(undefined);
-                } else
-                  setPath(
-                    path
-                      .replace(/[\\/]+$/, '')
-                      .split(/[\\/]/)
-                      .slice(0, -1)
-                      .join('/'),
-                  );
-              }}
-            >
+            <Button variant="ghost" onClick={back}>
               <ArrowLeft size={16} />
               Назад
             </Button>

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const APP_VERSION = '1.0.4';
+export const APP_VERSION = '1.0.5';
 export const APP_ID = 'dev.hvhbigname.occ';
 
 export function isPrivateHost(host: string): boolean {

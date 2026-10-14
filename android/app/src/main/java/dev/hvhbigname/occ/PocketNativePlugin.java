@@ -90,6 +90,9 @@ public class PocketNativePlugin extends Plugin implements EventConnection.Listen
     @PluginMethod public void registerPush(PluginCall call) { call.reject("Android uses the OCC background connection instead of APNs."); }
 
     @PluginMethod public void startSpeech(PluginCall call) {
+        if (recognizer != null) { call.reject("Диктовка уже запущена"); return; }
+        speechID = call.getString("id", java.util.UUID.randomUUID().toString());
+        call.getData().put("id", speechID);
         if (getPermissionState("microphone") != PermissionState.GRANTED) { requestPermissionForAlias("microphone", call, "speechPermission"); return; }
         beginSpeech(call);
     }
@@ -100,6 +103,8 @@ public class PocketNativePlugin extends Plugin implements EventConnection.Listen
 
     private void beginSpeech(PluginCall call) {
         getActivity().runOnUiThread(() -> {
+            String id = call.getString("id", "");
+            if (!id.equals(speechID)) { call.reject("Диктовка отменена"); return; }
             if (recognizer != null) { call.reject("Диктовка уже запущена"); return; }
             boolean offline = Boolean.TRUE.equals(call.getBoolean("offline", true));
             if (offline && (Build.VERSION.SDK_INT < 31 || !SpeechRecognizer.isOnDeviceRecognitionAvailable(getContext()))) {
@@ -115,15 +120,16 @@ public class PocketNativePlugin extends Plugin implements EventConnection.Listen
                     @Override public void onBufferReceived(byte[] buffer) {}
                     @Override public void onEndOfSpeech() {}
                     @Override public void onEvent(int eventType, Bundle params) {}
-                    @Override public void onPartialResults(Bundle results) { emitSpeech(results, false); }
-                    @Override public void onResults(Bundle results) { emitSpeech(results, true); destroySpeech(); }
+                    @Override public void onPartialResults(Bundle results) { if (id.equals(speechID)) emitSpeech(results, false); }
+                    @Override public void onResults(Bundle results) { if (id.equals(speechID)) { emitSpeech(results, true); destroySpeech(); } }
                     @Override public void onError(int error) {
+                        if (!id.equals(speechID)) return;
                         String message;
                         if (error == SpeechRecognizer.ERROR_NO_MATCH || error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT) message = "Речь не распознана. Попробуйте ещё раз.";
                         else if (error == SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED || error == SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE) message = "Этот язык недоступен. Скачайте языковой пакет в системном распознавателе.";
                         else if (error == SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS) message = "Нет разрешения на микрофон.";
                         else message = "Системное распознавание завершилось с ошибкой (" + error + "). Попробуйте снова.";
-                        notifyListeners("speech", new JSObject().put("error", message).put("final", true));
+                        notifyListeners("speech", new JSObject().put("id", id).put("error", message).put("final", true));
                         destroySpeech();
                     }
                 });
@@ -140,12 +146,17 @@ public class PocketNativePlugin extends Plugin implements EventConnection.Listen
 
     private void emitSpeech(Bundle results, boolean isFinal) {
         ArrayList<String> values = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
-        JSObject event = new JSObject().put("final", isFinal);
+        JSObject event = new JSObject().put("id", speechID).put("final", isFinal);
         if (values != null && !values.isEmpty()) event.put("text", values.get(0));
         notifyListeners("speech", event);
     }
-    private void destroySpeech() { if (recognizer != null) { recognizer.destroy(); recognizer = null; } }
-    @PluginMethod public void stopSpeech(PluginCall call) { getActivity().runOnUiThread(() -> { if (recognizer != null) recognizer.stopListening(); call.resolve(); }); }
+    private String speechID;
+    private void destroySpeech() { speechID = null; if (recognizer != null) { recognizer.destroy(); recognizer = null; } }
+    @PluginMethod public void stopSpeech(PluginCall call) { getActivity().runOnUiThread(() -> {
+        if (Boolean.TRUE.equals(call.getBoolean("cancel", false))) destroySpeech();
+        else if (recognizer != null) recognizer.stopListening();
+        call.resolve();
+    }); }
 
     private void emitTap(Intent intent) {
         if (intent != null && intent.hasExtra("occSessionID")) {

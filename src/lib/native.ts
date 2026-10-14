@@ -2,7 +2,13 @@ import { Capacitor, registerPlugin, type PluginListenerHandle } from '@capacitor
 
 type NativeEvent = { data: string };
 type NativeConnection = { state: 'connected' | 'reconnecting'; message?: string };
-type SpeechEvent = { text?: string; final?: boolean; error?: string };
+export type SpeechEvent = {
+  id?: string;
+  text?: string;
+  final?: boolean;
+  error?: string;
+  state?: 'idle' | 'listening' | 'finishing';
+};
 export type AppearanceCapabilities = {
   nativeGlass: boolean;
   reduceTransparency: boolean;
@@ -10,6 +16,13 @@ export type AppearanceCapabilities = {
   lowPower: boolean;
 };
 export type GlassRegion = { id: string; x: number; y: number; width: number; height: number; radius: number };
+export type KeyboardFrame = {
+  viewportHeight: number;
+  viewportWidth: number;
+  keyboardHeight: number;
+  duration: number;
+  curve: number;
+};
 
 interface PocketNativePlugin {
   readSecure(options: { key: string }): Promise<{ value?: string }>;
@@ -22,8 +35,9 @@ interface PocketNativePlugin {
     name: string;
   }): Promise<void>;
   stopEvents(): Promise<void>;
-  startSpeech(options: { locale: string; offline: boolean }): Promise<void>;
-  stopSpeech(): Promise<void>;
+  startSpeech(options: { id?: string; locale: string; offline: boolean }): Promise<void>;
+  stopSpeech(options?: { cancel?: boolean }): Promise<void>;
+  getKeyboardFrame(): Promise<KeyboardFrame>;
   requestNotifications(): Promise<{ granted: boolean }>;
   notificationStatus(): Promise<{ status: 'granted' | 'denied' | 'prompt' }>;
   openNotificationSettings(): Promise<void>;
@@ -38,6 +52,7 @@ interface PocketNativePlugin {
   addListener(name: 'serverEvent', listener: (event: NativeEvent) => void): Promise<PluginListenerHandle>;
   addListener(name: 'connection', listener: (event: NativeConnection) => void): Promise<PluginListenerHandle>;
   addListener(name: 'speech', listener: (event: SpeechEvent) => void): Promise<PluginListenerHandle>;
+  addListener(name: 'keyboardFrame', listener: (event: KeyboardFrame) => void): Promise<PluginListenerHandle>;
   addListener(
     name: 'notificationTap',
     listener: (event: { sessionID?: string }) => void,

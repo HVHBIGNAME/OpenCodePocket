@@ -1,4 +1,4 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Page, type Locator } from '@playwright/test';
 import { mkdir } from 'node:fs/promises';
 import { randomBytes } from 'node:crypto';
 import sharp from 'sharp';
@@ -18,13 +18,153 @@ async function connect(page: Page) {
 }
 
 async function tab(page: Page, name: string) {
-  if (await page.getByRole('button', { name: 'Назад к сессиям' }).count())
-    await page.getByRole('button', { name: 'Назад к сессиям' }).click();
+  for (let depth = 0; depth < 5 && (await page.locator('.chat-page').count()); depth++)
+    await page
+      .locator('.chat-heading')
+      .getByRole('button', { name: /^(Назад|На уровень)/ })
+      .click();
   await page
     .getByRole('navigation', { name: 'Главная навигация' })
     .getByRole('button', { name, exact: true })
     .click();
 }
+
+async function swipe(target: Locator, dx: number, dy: number, x = 0.5) {
+  await target.evaluate(async (element) => {
+    const surface = element.closest('.chat-page, dialog') ?? element;
+    await Promise.all(
+      surface
+        .getAnimations({ subtree: true })
+        .filter((animation) => animation.effect?.getComputedTiming().iterations !== Infinity)
+        .map((animation) => animation.finished.catch(() => undefined)),
+    );
+  });
+  await target.evaluate(
+    (element, { dx, dy, x }) => {
+      const box = element.getBoundingClientRect();
+      const startX = box.left + box.width * x;
+      const startY = box.top + Math.min(30, box.height / 2);
+      const emit = (type: string, fraction: number) => {
+        const touch = {
+          identifier: 7,
+          target: element,
+          clientX: startX + dx * fraction,
+          clientY: startY + dy * fraction,
+        };
+        const event = new Event(type, { bubbles: true, cancelable: true });
+        Object.defineProperties(event, {
+          touches: { value: type === 'touchend' || type === 'touchcancel' ? [] : [touch] },
+          changedTouches: { value: [touch] },
+        });
+        element.dispatchEvent(event);
+      };
+      emit('touchstart', 0);
+      for (let step = 1; step <= 5; step++) emit('touchmove', step / 5);
+      emit('touchend', 1);
+    },
+    { dx, dy, x },
+  );
+}
+
+test('animates chat geometry with keyboard frames and keeps a sheet above the keyboard', async ({ page }) => {
+  await connect(page);
+  await page.getByRole('button', { name: /Панель управления — новая архитектура/ }).click();
+  await expect(page.getByText('Предлагаемая структура', { exact: true })).toBeVisible();
+  const target = await page.evaluate(async () => {
+    const path = '/src/lib/keyboard.ts';
+    const { renderKeyboardFrame } = await import(path);
+    const viewportHeight = window.innerHeight - 250;
+    renderKeyboardFrame({
+      viewportHeight,
+      viewportWidth: window.innerWidth,
+      keyboardHeight: 250,
+      duration: 0.25,
+      curve: 0,
+    });
+    return viewportHeight;
+  });
+  await expect(page.locator('.app-chat')).toHaveCSS('transition-duration', '0.25s');
+  await expect
+    .poll(async () => Math.abs((await page.locator('.app-chat').boundingBox())!.height - target))
+    .toBeLessThan(2);
+  expect((await page.getByLabel('Промпт для OpenCode').boundingBox())!.y).toBeLessThan(target);
+  await page.getByRole('button', { name: 'Модель и режим сессии' }).click();
+  await expect(page.getByRole('dialog')).toBeVisible();
+  await expect
+    .poll(async () => {
+      const box = (await page.getByRole('dialog').boundingBox())!;
+      return box.y + box.height;
+    })
+    .toBeLessThanOrEqual(target + 2);
+  await page.getByRole('button', { name: 'Закрыть', exact: true }).click();
+  await page.evaluate(async () => {
+    const path = '/src/lib/keyboard.ts';
+    const { renderKeyboardFrame } = await import(path);
+    renderKeyboardFrame({
+      viewportHeight: innerHeight,
+      viewportWidth: innerWidth,
+      keyboardHeight: 0,
+      duration: 0.25,
+      curve: 0,
+    });
+  });
+  await expect(page.locator('body')).not.toHaveClass(/keyboard-open/);
+});
+
+test('swipes between chat tabs and navigates back through files and the session', async ({ page }) => {
+  await connect(page);
+  await page.getByRole('button', { name: /Панель управления — новая архитектура/ }).click();
+  await expect(page.getByText('Предлагаемая структура', { exact: true })).toBeVisible();
+  await swipe(page.locator('.chat-tabs'), -120, 4);
+  await expect(page.getByRole('button', { name: 'Изменения', exact: true })).toHaveAttribute(
+    'aria-current',
+    'page',
+  );
+  await swipe(page.locator('.chat-tabs'), -120, 4);
+  await expect(page.getByRole('button', { name: 'Задачи', exact: true })).toHaveAttribute(
+    'aria-current',
+    'page',
+  );
+  await swipe(page.locator('.chat-tabs'), -120, 4);
+  await page
+    .locator('.file-list')
+    .getByRole('button', { name: /README/ })
+    .click();
+  await expect(page.getByText('Your servers, under control.', { exact: false })).toBeVisible();
+  await swipe(page.locator('.chat-page'), 130, 5, 0.015);
+  await expect(page.locator('.file-list')).toBeVisible();
+  await swipe(page.locator('.chat-page'), 130, 5, 0.015);
+  await expect(page.getByRole('button', { name: 'Диалог', exact: true })).toHaveAttribute(
+    'aria-current',
+    'page',
+  );
+  await swipe(page.locator('.chat-page'), 130, 5, 0.015);
+  await expect(page.locator('.session-feed')).toBeVisible();
+});
+
+test('ignores gestures on code, inputs and vertical scrolling, and drags sheets down to close', async ({
+  page,
+}) => {
+  await connect(page);
+  await page.getByRole('button', { name: /Панель управления — новая архитектура/ }).click();
+  await expect(page.getByText('Предлагаемая структура', { exact: true })).toBeVisible();
+  await swipe(page.locator('.chat-scroll pre').first(), -140, 0);
+  await swipe(page.getByLabel('Промпт для OpenCode'), -140, 0);
+  await swipe(page.locator('.chat-scroll'), 15, 120);
+  await expect(page.getByRole('button', { name: 'Диалог', exact: true })).toHaveAttribute(
+    'aria-current',
+    'page',
+  );
+  await page.getByLabel('Промпт для OpenCode').fill('Черновик после закрытия панели');
+  await page.getByRole('button', { name: 'Модель и режим сессии' }).click();
+  await expect(page.getByRole('dialog')).toBeVisible();
+  await swipe(page.locator('.modal-handle'), 0, 18);
+  // A tiny drag must not close the sheet even if sent quickly.
+  await expect(page.getByRole('dialog')).toBeVisible();
+  await swipe(page.locator('.modal-handle'), 0, 150);
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(page.getByLabel('Промпт для OpenCode')).toHaveValue('Черновик после закрытия панели');
+});
 
 test('keeps a healthy stream quiet without periodic workspace polling', async ({ page }) => {
   await connect(page);

@@ -28,6 +28,7 @@ public class PocketNativePlugin: CAPPlugin, CAPBridgedPlugin, UNUserNotification
         CAPPluginMethod(name: "stopEvents", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "startSpeech", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "stopSpeech", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "getKeyboardFrame", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "requestNotifications", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "notificationStatus", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "openNotificationSettings", returnType: CAPPluginReturnPromise),
@@ -42,9 +43,17 @@ public class PocketNativePlugin: CAPPlugin, CAPBridgedPlugin, UNUserNotification
     private var pushTimeout: DispatchWorkItem?
     private var observers: [NSObjectProtocol] = []
     private var glass: PocketGlassBackground?
+    private var keyboardEndFrame: CGRect?
 
     public override func load() {
         speech = PocketSpeech { [weak self] event in self?.notifyListeners("speech", data: event) }
+        observers.append(NotificationCenter.default.addObserver(forName: UIResponder.keyboardWillChangeFrameNotification, object: nil, queue: .main) { [weak self] note in
+            guard let self = self else { return }
+            self.keyboardEndFrame = (note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue)?.cgRectValue
+            let duration = (note.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? NSNumber)?.doubleValue ?? 0
+            let curve = (note.userInfo?[UIResponder.keyboardAnimationCurveUserInfoKey] as? NSNumber)?.intValue ?? 0
+            self.notifyListeners("keyboardFrame", data: self.keyboardFrame(duration: duration, curve: curve))
+        })
         UNUserNotificationCenter.current().delegate = self
         observers.append(NotificationCenter.default.addObserver(forName: Notification.Name("occPushRegistered"), object: nil, queue: .main) { [weak self] notification in
             guard let self = self, let token = notification.object as? String else { return }
@@ -74,6 +83,25 @@ public class PocketNativePlugin: CAPPlugin, CAPBridgedPlugin, UNUserNotification
          "reduceTransparency": UIAccessibility.isReduceTransparencyEnabled,
          "reduceMotion": UIAccessibility.isReduceMotionEnabled,
          "lowPower": ProcessInfo.processInfo.isLowPowerModeEnabled]
+    }
+
+    private func keyboardFrame(duration: Double = 0, curve: Int = 0) -> [String: Any] {
+        guard let webView = bridge?.webView else { return [:] }
+        var overlap: CGFloat = 0
+        if let frame = keyboardEndFrame, let window = webView.window {
+            let inWindow = window.convert(frame, from: window.screen.coordinateSpace)
+            let rect = webView.convert(inWindow, from: window)
+            let intersection = webView.bounds.intersection(rect)
+            if !intersection.isNull && intersection.width >= webView.bounds.width * 0.8 && rect.maxY >= webView.bounds.maxY - 1 {
+                overlap = intersection.height
+            }
+        }
+        return ["viewportHeight": max(0, webView.bounds.height - overlap), "viewportWidth": webView.bounds.width,
+                "keyboardHeight": overlap, "duration": duration, "curve": curve]
+    }
+
+    @objc func getKeyboardFrame(_ call: CAPPluginCall) {
+        DispatchQueue.main.async { call.resolve(self.keyboardFrame()) }
     }
 
     @objc func appearanceCapabilities(_ call: CAPPluginCall) {
@@ -133,7 +161,12 @@ public class PocketNativePlugin: CAPPlugin, CAPBridgedPlugin, UNUserNotification
 
     @objc func stopEvents(_ call: CAPPluginCall) { DispatchQueue.main.async { self.stream?.stop(); self.stream = nil; call.resolve() } }
     @objc func startSpeech(_ call: CAPPluginCall) { DispatchQueue.main.async { self.speech?.start(call) } }
-    @objc func stopSpeech(_ call: CAPPluginCall) { DispatchQueue.main.async { self.speech?.stop(); call.resolve() } }
+    @objc func stopSpeech(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            if call.getBool("cancel") == true { self.speech?.cancel() } else { self.speech?.stop() }
+            call.resolve()
+        }
+    }
 
     @objc func requestNotifications(_ call: CAPPluginCall) {
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, error in
@@ -188,6 +221,7 @@ public class PocketNativePlugin: CAPPlugin, CAPBridgedPlugin, UNUserNotification
     }
 
     deinit {
+        speech?.cancel()
         stream?.stop()
         pushTimeout?.cancel()
         for observer in observers { NotificationCenter.default.removeObserver(observer) }
