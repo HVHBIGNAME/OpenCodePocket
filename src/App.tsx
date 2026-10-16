@@ -19,6 +19,7 @@ import { SessionsPage } from './components/SessionList';
 import { captureDiagnostic } from './lib/diagnostics';
 import { installKeyboardHandling } from './lib/keyboard';
 import { installGlassHandling } from './lib/glass';
+import { installFocusHandling } from './lib/focus';
 import { installUpdateChecking } from './lib/updates';
 import { UpdateNotice, UpdateSettings } from './components/UpdateSettings';
 
@@ -36,6 +37,7 @@ const navigation = [
 
 export function App() {
   const pocket = usePocket();
+  useEffect(installFocusHandling, []);
   useEffect(installKeyboardHandling, []);
   useEffect(installGlassHandling, []);
   useEffect(installUpdateChecking, []);

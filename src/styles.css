@@ -110,9 +110,15 @@
     background: var(--border-strong-base);
     border-radius: 4px;
   }
-  :focus-visible {
+  :focus {
+    outline: none;
+  }
+  :where(:root[data-input-mode='keyboard']) :focus-visible {
     outline: 2px solid var(--border-interactive-focus);
     outline-offset: 3px;
+  }
+  .modal-inner:focus {
+    outline: none;
   }
   h1,
   h2,
@@ -615,9 +621,9 @@
   .send-button:hover:not(:disabled):not(.stop-button) {
     background: var(--icon-strong-hover);
   }
-  .button-primary:focus-visible:not(:disabled),
-  .new-session-fab:focus-visible:not(:disabled),
-  .send-button:focus-visible:not(:disabled):not(.stop-button) {
+  :where(:root[data-input-mode='keyboard']) .button-primary:focus-visible:not(:disabled),
+  :where(:root[data-input-mode='keyboard']) .new-session-fab:focus-visible:not(:disabled),
+  :where(:root[data-input-mode='keyboard']) .send-button:focus-visible:not(:disabled):not(.stop-button) {
     background: var(--icon-strong-focus);
   }
   .button-primary:active:not(:disabled),
@@ -644,7 +650,7 @@
     color: var(--text-strong);
   }
   .button-ghost:hover:not(:disabled),
-  .button-ghost:focus-visible:not(:disabled) {
+  :where(:root[data-input-mode='keyboard']) .button-ghost:focus-visible:not(:disabled) {
     background: var(--surface-base-hover);
   }
   .button-ghost:active:not(:disabled) {
@@ -3612,7 +3618,7 @@
     background: var(--icon-invert-base);
     box-shadow: none;
   }
-  .toggle-row input:focus-visible + .toggle-track {
+  :where(:root[data-input-mode='keyboard']) .toggle-row input:focus-visible + .toggle-track {
     outline: 2px solid var(--border-interactive-focus);
     outline-offset: 4px;
   }

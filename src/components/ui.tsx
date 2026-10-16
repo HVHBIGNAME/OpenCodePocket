@@ -13,8 +13,26 @@ import { captureDiagnostic } from '../lib/diagnostics';
 import clsx from 'clsx';
 import { dragFeedback, useSwipe } from '../lib/gestures';
 import { usePageActive } from './PageDeck';
+import { keyboardNavigation } from '../lib/focus';
 
 const closingDialogs = new WeakSet<HTMLDialogElement>();
+const dialogOpeners = new WeakMap<HTMLDialogElement, HTMLElement>();
+
+function dismissDialog(dialog: HTMLDialogElement) {
+  if (!dialog.open) return;
+  const opener = dialogOpeners.get(dialog);
+  dialog.close();
+  dialogOpeners.delete(dialog);
+  if (
+    keyboardNavigation() &&
+    opener?.isConnected &&
+    !opener.closest('[inert]') &&
+    !opener.matches(':disabled')
+  )
+    opener.focus({ preventScroll: true });
+  else if (document.activeElement === opener) opener?.blur();
+}
+
 export function closeDialog(dialog: HTMLDialogElement | null, onClose: () => void) {
   if (!dialog || !dialog.open) {
     onClose();
@@ -24,7 +42,7 @@ export function closeDialog(dialog: HTMLDialogElement | null, onClose: () => voi
   closingDialogs.add(dialog);
   if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
   const complete = () => {
-    dialog.close();
+    dismissDialog(dialog);
     closingDialogs.delete(dialog);
     onClose();
   };
@@ -133,11 +151,20 @@ export function Modal({
   });
   useEffect(() => {
     const dialog = ref.current;
+    if (!dialog) return;
     if (!active) {
-      dialog?.close();
+      dismissDialog(dialog);
       return;
     }
-    dialog?.showModal();
+    const opener = document.activeElement;
+    if (opener instanceof HTMLElement && !dialog.contains(opener)) {
+      dialogOpeners.set(dialog, opener);
+      if (!keyboardNavigation()) opener.blur();
+    }
+    dialog.showModal();
+    dialog
+      .querySelector<HTMLElement>(keyboardNavigation() ? '.modal-handle' : '.modal-inner')
+      ?.focus({ preventScroll: true });
     const observer = new ResizeObserver(() => {
       const field = document.activeElement;
       if (
@@ -156,7 +183,7 @@ export function Modal({
     if (dialog) observer.observe(dialog);
     return () => {
       observer.disconnect();
-      dialog?.close();
+      dismissDialog(dialog);
     };
   }, [active]);
   return (
@@ -180,7 +207,7 @@ export function Modal({
         }
       }}
     >
-      <div className="modal-inner">
+      <div className="modal-inner" tabIndex={-1}>
         <button type="button" className="modal-handle" aria-label="Закрыть панель" onClick={close}>
           <span />
         </button>

@@ -1,5 +1,6 @@
 import { isNative, platform, PocketNative, type AppearanceCapabilities, type GlassRegion } from './native';
 import { captureDiagnostic } from './diagnostics';
+import { pointerNavigation } from './focus';
 
 export function glassRenderer(enabled: boolean, supported: boolean, reduced: boolean) {
   return enabled && supported && !reduced ? 'native' : 'none';
@@ -222,7 +223,10 @@ export function installGlassHandling(native = isNative && platform === 'ios', ap
       )
         return;
       const element = targets.find((target) => target.dataset.pocketGlass === id);
-      if (element?.isConnected && !element.disabled && hidden.has(element)) element.click();
+      if (element?.isConnected && !element.disabled && hidden.has(element)) {
+        pointerNavigation();
+        element.click();
+      }
     }),
   ];
   void api
