@@ -1,5 +1,15 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
-import { ArrowUp, ChevronDown, Command as CommandIcon, Mic, Paperclip, Square, X } from 'lucide-react';
+import {
+  ArrowLeft,
+  ArrowUp,
+  ChevronDown,
+  Command as CommandIcon,
+  Mic,
+  Paperclip,
+  Square,
+  X,
+} from 'lucide-react';
+import { PageDeck, usePageActive } from './PageDeck';
 import type { PluginListenerHandle } from '@capacitor/core';
 import { Keyboard } from '@capacitor/keyboard';
 import { usePocket } from '../store/PocketProvider';
@@ -8,14 +18,16 @@ import { isNative, PocketNative } from '../lib/native';
 import { useComposerDraft } from '../store/drafts';
 import { captureDiagnostic } from '../lib/diagnostics';
 import type { Command, Session } from '../types';
-import { ExternalLink, IconButton, KeyboardDismiss, Modal } from './ui';
+import { closeDialog, ExternalLink, IconButton, KeyboardDismiss, Modal } from './ui';
 import { commandCatalog, commandSuggestions, type SlashCommand } from '../lib/commands';
 import { useSessionCommands } from './useSessionCommands';
 import { ModelPicker } from './ModelPicker';
 import { SessionOptions } from './SessionOptions';
 import { prepareAttachment, type Attachment } from '../lib/attachments';
 
-export function Composer({ session }: { session: Session }) {
+export function Composer({ session, active: tabActive = true }: { session: Session; active?: boolean }) {
+  const pageActive = usePageActive();
+  const active = tabActive && pageActive;
   const {
     client,
     data,
@@ -48,6 +60,12 @@ export function Composer({ session }: { session: Session }) {
   };
   const [showModels, setShowModels] = useState(false);
   const [showOptions, setShowOptions] = useState(false);
+  const optionsRef = useRef<HTMLDialogElement>(null);
+  const resetOptions = () => {
+    setShowModels(false);
+    setShowOptions(false);
+  };
+  const closeOptions = () => closeDialog(optionsRef.current, resetOptions);
   const [commands, setCommands] = useState<Command[]>([]);
   const catalog = useMemo(() => commandCatalog(commands), [commands]);
   const [commandIndex, setCommandIndex] = useState(0);
@@ -68,6 +86,10 @@ export function Composer({ session }: { session: Session }) {
     (item) => item.id === model?.modelID && item.providerID === model?.providerID,
   );
   useEffect(() => {
+    if (!active) {
+      setSpeechPhase('idle');
+      return;
+    }
     return () => {
       speechID.current = undefined;
       clearTimeout(speechTimeout.current);
@@ -77,7 +99,7 @@ export function Composer({ session }: { session: Session }) {
           captureDiagnostic(error, { kind: 'action' }),
         );
     };
-  }, []);
+  }, [active]);
   useEffect(() => {
     if (inputRef.current) {
       const previousTop = inputRef.current.scrollTop;
@@ -354,7 +376,7 @@ export function Composer({ session }: { session: Session }) {
           aria-activedescendant={
             suggestions.length ? `slash-command-${Math.min(commandIndex, suggestions.length - 1)}` : undefined
           }
-          placeholder={listening ? 'Диктовка…' : 'Запрос…'}
+          placeholder={listening ? 'Диктовка…' : 'Сообщение OpenCode…'}
           value={draft}
           onChange={(event) => {
             setDraft(event.target.value);
@@ -368,9 +390,9 @@ export function Composer({ session }: { session: Session }) {
             }
           }}
           onKeyDown={keyboard}
-          rows={2}
+          rows={1}
           spellCheck={false}
-          disabled={!draftLoaded || sending}
+          disabled={!active || !draftLoaded || sending}
           readOnly={listening}
         />
         <div className="composer-controls">
@@ -486,20 +508,46 @@ export function Composer({ session }: { session: Session }) {
           <span>{busy ? 'В работе…' : (model?.variant ?? '')}</span>
         </div>
       )}
-      {showModels && <ModelPicker onClose={() => setShowModels(false)} />}
+      {(showModels || showOptions) && (
+        <Modal
+          title={showModels ? 'Выбрать модель' : 'Как будем работать?'}
+          header={false}
+          className="navigation-modal"
+          dialogRef={optionsRef}
+          onClose={resetOptions}
+          onBack={showModels && showOptions ? () => setShowModels(false) : undefined}
+        >
+          <PageDeck
+            name="session-options"
+            pageKey={showModels ? 'models' : 'options'}
+            scroll
+            onBack={() => setShowModels(false)}
+          >
+            <div className="sheet-page">
+              <header className="sheet-page-header">
+                {showModels && showOptions && (
+                  <IconButton label="Назад к режиму сессии" onClick={() => setShowModels(false)}>
+                    <ArrowLeft size={20} />
+                  </IconButton>
+                )}
+                <h2>{showModels ? 'Выбрать модель' : 'Как будем работать?'}</h2>
+                <IconButton label="Закрыть" onClick={closeOptions}>
+                  <X size={20} />
+                </IconButton>
+              </header>
+              {showModels ? (
+                <ModelPicker embedded onClose={closeOptions} />
+              ) : (
+                <SessionOptions embedded onClose={closeOptions} chooseModel={() => setShowModels(true)} />
+              )}
+            </div>
+          </PageDeck>
+        </Modal>
+      )}
       {sharedURL && (
         <Modal title="Ссылка на диалог" onClose={() => setSharedURL(undefined)}>
           <ExternalLink href={sharedURL}>Открыть общий диалог</ExternalLink>
         </Modal>
-      )}
-      {showOptions && (
-        <SessionOptions
-          onClose={() => setShowOptions(false)}
-          chooseModel={() => {
-            setShowOptions(false);
-            setShowModels(true);
-          }}
-        />
       )}
     </div>
   );

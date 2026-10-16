@@ -19,6 +19,7 @@ export function DiagnosticSettings() {
     if (client?.connection.mode !== 'bridge') return;
     let alive = true;
     const refresh = () => {
+      if (document.hidden) return;
       void client
         .companion<DiagnosticSummary>('/reports')
         .then((value) => {

@@ -13,6 +13,7 @@ test('keeps original palettes and migrates the old glass theme without a CSS imi
     .getByRole('navigation', { name: 'Главная навигация' })
     .getByRole('button', { name: 'Настройки' })
     .click();
+  await page.getByRole('button', { name: 'Оформление', exact: true }).click();
   await page.getByRole('button', { name: 'Тема: Mercury', exact: true }).click();
   await page.getByLabel('Поиск тем').fill('Liquid Glass');
   const option = page.getByRole('button', { name: 'Liquid Glass', exact: true });
@@ -94,6 +95,7 @@ test('loads palettes on demand and ignores an older theme selection that finishe
     .getByRole('navigation', { name: 'Главная навигация' })
     .getByRole('button', { name: 'Настройки' })
     .click();
+  await page.getByRole('button', { name: 'Оформление', exact: true }).click();
   await page.getByRole('button', { name: 'Тема: Mercury', exact: true }).click();
   let release!: () => void;
   const gate = new Promise<void>((resolve) => {
@@ -126,6 +128,7 @@ for (const mode of ['dark', 'light'] as const) {
       .getByRole('navigation', { name: 'Главная навигация' })
       .getByRole('button', { name: 'Настройки' })
       .click();
+    await page.getByRole('button', { name: 'Оформление', exact: true }).click();
     await page.getByRole('button', { name: mode === 'dark' ? 'Тёмная' : 'Светлая', exact: true }).click();
     await page.getByRole('button', { name: 'Тема: Mercury', exact: true }).click();
     for (const theme of catalog.themes) {
@@ -170,6 +173,7 @@ test('persists the theme across restarts and follows system appearance only when
     .getByRole('navigation', { name: 'Главная навигация' })
     .getByRole('button', { name: 'Настройки' })
     .click();
+  await page.getByRole('button', { name: 'Оформление', exact: true }).click();
   await page.getByRole('button', { name: 'Тема: Mercury', exact: true }).click();
   await page.getByLabel('Поиск тем').fill('Catppuccin');
   await page
@@ -187,6 +191,7 @@ test('persists the theme across restarts and follows system appearance only when
     .getByRole('navigation', { name: 'Главная навигация' })
     .getByRole('button', { name: 'Настройки' })
     .click();
+  await page.getByRole('button', { name: 'Оформление', exact: true }).click();
   await page.getByRole('button', { name: 'Тёмная', exact: true }).click();
   await page.emulateMedia({ colorScheme: 'dark' });
   await page.emulateMedia({ colorScheme: 'light' });

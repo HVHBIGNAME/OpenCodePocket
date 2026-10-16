@@ -22,18 +22,20 @@ function ReasoningView({ part }: { part: Extract<Part, { type: 'reasoning' }> })
         Ход рассуждений{!hasText && (part.time.end ? ' · текст не передан' : '…')}
         <ChevronRight size={14} />
       </summary>
-      {hasText ? (
-        <RichText text={part.text} />
-      ) : (
-        <p className="form-hint">
-          {part.time.end ? 'Сервер не передал текст рассуждений.' : 'Модель обдумывает ответ.'}
-        </p>
-      )}
+      {(expanded ?? hasText) &&
+        (hasText ? (
+          <RichText text={part.text} />
+        ) : (
+          <p className="form-hint">
+            {part.time.end ? 'Сервер не передал текст рассуждений.' : 'Модель обдумывает ответ.'}
+          </p>
+        ))}
     </details>
   );
 }
 
-function PartView({ part }: { part: Part }) {
+const PartView = memo(function PartView({ part }: { part: Part }) {
+  const [expanded, setExpanded] = useState(false);
   switch (part.type) {
     case 'text':
       return part.ignored ? null : <RichText text={part.text} />;
@@ -43,7 +45,10 @@ function PartView({ part }: { part: Part }) {
       if (part.tool === 'task') return <AgentTask part={part} />;
       const state = part.state;
       return (
-        <details className={`tool-block tool-${state.status}`}>
+        <details
+          className={`tool-block tool-${state.status}`}
+          onToggle={(event) => setExpanded(event.currentTarget.open)}
+        >
           <summary>
             <span className="tool-status">
               {state.status === 'completed' ? (
@@ -59,25 +64,27 @@ function PartView({ part }: { part: Part }) {
             <span>{'title' in state ? state.title : state.status === 'pending' ? 'В очереди' : ''}</span>
             <ChevronRight size={14} />
           </summary>
-          <div className="tool-body">
-            <span className="eyebrow">Параметры</span>
-            <CodeBlock>
-              <code className="language-json">{JSON.stringify(state.input, null, 2)}</code>
-            </CodeBlock>
-            {state.status === 'completed' && (
-              <>
-                <span className="eyebrow">Результат</span>
-                <CodeBlock>
-                  <code className="language-output">{state.output}</code>
-                </CodeBlock>
-              </>
-            )}
-            {state.status === 'error' && (
-              <p className={isAbortedTool(state.error) ? 'system-part' : 'inline-error'}>
-                {isAbortedTool(state.error) ? 'Выполнение отменено' : state.error}
-              </p>
-            )}
-          </div>
+          {expanded && (
+            <div className="tool-body">
+              <span className="eyebrow">Параметры</span>
+              <CodeBlock>
+                <code className="language-json">{JSON.stringify(state.input, null, 2)}</code>
+              </CodeBlock>
+              {state.status === 'completed' && (
+                <>
+                  <span className="eyebrow">Результат</span>
+                  <CodeBlock>
+                    <code className="language-output">{state.output}</code>
+                  </CodeBlock>
+                </>
+              )}
+              {state.status === 'error' && (
+                <p className={isAbortedTool(state.error) ? 'system-part' : 'inline-error'}>
+                  {isAbortedTool(state.error) ? 'Выполнение отменено' : state.error}
+                </p>
+              )}
+            </div>
+          )}
         </details>
       );
     }
@@ -93,31 +100,35 @@ function PartView({ part }: { part: Part }) {
       );
     case 'patch':
       return (
-        <details className="tool-block">
+        <details className="tool-block" onToggle={(event) => setExpanded(event.currentTarget.open)}>
           <summary>
             <FileCode2 size={16} />
             Изменены файлы<span>{part.files.length}</span>
           </summary>
-          <div className="tool-body">
-            {part.files.map((file) => (
-              <code className="patch-file" key={file}>
-                {file}
-              </code>
-            ))}
-          </div>
+          {expanded && (
+            <div className="tool-body">
+              {part.files.map((file) => (
+                <code className="patch-file" key={file}>
+                  {file}
+                </code>
+              ))}
+            </div>
+          )}
         </details>
       );
     case 'subtask':
       return (
-        <details className="tool-block">
+        <details className="tool-block" onToggle={(event) => setExpanded(event.currentTarget.open)}>
           <summary>
             <Terminal size={15} />
             Подзадача · {part.agent}
             <span>{part.description}</span>
           </summary>
-          <div className="tool-body">
-            <RichText text={part.prompt} />
-          </div>
+          {expanded && (
+            <div className="tool-body">
+              <RichText text={part.prompt} />
+            </div>
+          )}
         </details>
       );
     case 'agent':
@@ -133,7 +144,7 @@ function PartView({ part }: { part: Part }) {
     default:
       return null;
   }
-}
+});
 
 export const MessageView = memo(function MessageView({
   entry,
@@ -154,10 +165,7 @@ export const MessageView = memo(function MessageView({
     >
       <div className="message-content">
         <header className="message-header">
-          <strong>{assistant ? 'OpenCode' : 'Ты'}</strong>
-          {entry.info.role === 'assistant' && (
-            <span className="message-model mono">{entry.info.modelID}</span>
-          )}
+          <strong>{assistant ? 'OpenCode' : 'Вы'}</strong>
           <time>{clock(entry.info.time.created)}</time>
           <CopyButton text={text} />
         </header>
@@ -176,13 +184,19 @@ export const MessageView = memo(function MessageView({
           </p>
         )}
         {entry.info.role === 'assistant' && entry.info.time.completed && !entry.info.error && (
-          <footer className="message-footer">
-            <Check size={12} />
-            <span>
-              {number(entry.info.tokens.input)} in · {number(entry.info.tokens.output)} out
-            </span>
-            <span>{money(entry.info.cost)}</span>
-          </footer>
+          <details className="message-info">
+            <summary>
+              Детали ответа
+              <ChevronRight size={13} />
+            </summary>
+            <div className="message-footer">
+              <span>{entry.info.modelID}</span>
+              <span>
+                {number(entry.info.tokens.input)} in · {number(entry.info.tokens.output)} out
+              </span>
+              <span>{money(entry.info.cost)}</span>
+            </div>
+          </details>
         )}
       </div>
     </article>

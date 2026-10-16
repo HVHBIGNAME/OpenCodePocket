@@ -1,6 +1,17 @@
-import { Component, Suspense, lazy, useEffect, useLayoutEffect, useState, type ReactNode } from 'react';
-import { ChevronDown, Cpu, LoaderCircle, MessageSquare, Settings2, Terminal, X } from 'lucide-react';
-import { usePocket } from './store/PocketProvider';
+import { Component, lazy, useEffect, useRef, useState, type ReactNode } from 'react';
+import {
+  ChevronDown,
+  Cpu,
+  Inbox as InboxIcon,
+  Laptop,
+  LoaderCircle,
+  MessageSquare,
+  Settings2,
+  X,
+} from 'lucide-react';
+import { PocketSnapshot, usePocket } from './store/PocketProvider';
+import { PageDeck, PageScroll } from './components/PageDeck';
+import type { Screen as ScreenName } from './types';
 import { ConnectModal } from './components/ConnectModal';
 import { Button, IconButton, Modal } from './components/ui';
 import { Welcome } from './pages/Welcome';
@@ -17,66 +28,98 @@ const Inbox = lazy(() => import('./pages/Inbox').then((module) => ({ default: mo
 const Settings = lazy(() => import('./pages/Settings').then((module) => ({ default: module.Settings })));
 
 const navigation = [
-  { id: 'sessions', name: 'Сессии', icon: Terminal },
-  { id: 'inbox', name: 'Запросы', icon: MessageSquare },
+  { id: 'sessions', name: 'Сессии', icon: MessageSquare },
+  { id: 'inbox', name: 'Запросы', icon: InboxIcon },
   { id: 'models', name: 'Модели', icon: Cpu },
   { id: 'settings', name: 'Настройки', icon: Settings2 },
 ] as const;
 
 export function App() {
-  const [errorDetails, setErrorDetails] = useState<string>();
-  const [updatesOpen, setUpdatesOpen] = useState(false);
-  const {
-    ready,
-    screen,
-    setScreen,
-    client,
-    status,
-    pendingCount,
-    setConnectOpen,
-    connectOpen,
-    toast,
-    setToast,
-  } = usePocket();
-  useLayoutEffect(() => {
-    if (client && (screen === 'sessions' || screen === 'overview')) return;
-    window.scrollTo(0, 0);
-  }, [screen, client]);
+  const pocket = usePocket();
   useEffect(installKeyboardHandling, []);
   useEffect(installGlassHandling, []);
   useEffect(installUpdateChecking, []);
-  if (!ready)
+  if (!pocket.ready)
     return (
       <div className="splash">
         <LoaderCircle size={22} className="spin" />
       </div>
     );
+  const pageKey =
+    pocket.screen === 'chat'
+      ? `chat:${pocket.sessionID ?? ''}`
+      : pocket.screen === 'overview'
+        ? 'sessions'
+        : pocket.screen;
+  return (
+    <div className="app-shell" data-connection-state={pocket.status}>
+      <PageDeck
+        key={pocket.client?.connection.id ?? 'welcome'}
+        name="app"
+        pageKey={pageKey}
+        order={navigation.map((item) => item.id)}
+        onBack={(key) => {
+          pocket.haptic();
+          if (!key.startsWith('chat:')) {
+            pocket.setScreen(key as ScreenName);
+            return;
+          }
+          const session = pocket.data.sessions.find((item) => item.id === key.slice(5));
+          if (session) pocket.openSession(session);
+          else pocket.setScreen('sessions');
+        }}
+      >
+        <PocketSnapshot value={pocket}>
+          <Screen />
+        </PocketSnapshot>
+      </PageDeck>
+    </div>
+  );
+}
+
+function Screen() {
+  const scroll = useRef<HTMLElement>(null);
+  const [errorDetails, setErrorDetails] = useState<string>();
+  const [updatesOpen, setUpdatesOpen] = useState(false);
+  const { screen, setScreen, client, status, pendingCount, setConnectOpen, connectOpen, toast, setToast } =
+    usePocket();
   const chatting = screen === 'chat';
   const home = screen === 'sessions' || screen === 'overview';
   return (
-    <div className={`app-shell ${chatting ? 'app-chat' : ''}`} data-connection-state={status}>
+    <div className={`screen-layout ${chatting ? 'app-chat' : ''}`}>
       {!chatting && (
         <header className="app-header">
+          <span className="app-wordmark">
+            OpenCode <span>Pocket</span>
+          </span>
           <button
             className="connection-switch"
             data-pocket-glass="connection"
             aria-label={`Подключение: ${client?.connection.name ?? 'добавить компьютер'}`}
+            aria-describedby="connection-status"
             onClick={() => setConnectOpen(true)}
           >
-            <span className={status === 'live' ? 'live-dot' : 'neutral-dot'} />
+            <Laptop size={16} aria-hidden />
             <span>{client?.connection.name ?? 'Подключить ПК'}</span>
+            {client && <span className={status === 'live' ? 'live-dot' : 'neutral-dot'} />}
             <ChevronDown size={15} />
           </button>
+          <span className="sr-only" id="connection-status">
+            {!client
+              ? 'Компьютер не подключён'
+              : status === 'live'
+                ? 'Соединение установлено'
+                : status === 'offline'
+                  ? 'Нет связи'
+                  : 'Подключаемся'}
+          </span>
         </header>
       )}
-      <main className={chatting ? 'main-chat' : 'main-content'} id="main">
-        <Suspense
-          fallback={
-            <div className="loading-state">
-              <LoaderCircle size={24} className="spin" />
-              Загружаем…
-            </div>
-          }
+      <PageScroll.Provider value={scroll}>
+        <main
+          className={chatting ? 'main-chat' : 'main-content'}
+          ref={scroll}
+          data-page-scroll={!chatting || undefined}
         >
           {home ? (
             client ? (
@@ -89,12 +132,12 @@ export function App() {
           ) : screen === 'models' ? (
             <Models />
           ) : screen === 'inbox' ? (
-            <Inbox />
+            <Inbox key={client?.connection.id} />
           ) : (
             <Settings />
           )}
-        </Suspense>
-      </main>
+        </main>
+      </PageScroll.Provider>
       {!chatting && <UpdateNotice onOpen={() => setUpdatesOpen(true)} />}
       {updatesOpen && (
         <Modal title="Обновление Pocket" onClose={() => setUpdatesOpen(false)}>

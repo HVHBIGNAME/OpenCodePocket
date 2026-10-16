@@ -8,10 +8,12 @@ export function ChatSearch({
   entries,
   onSelect,
   onClose,
+  active = true,
 }: {
   entries: MessageEntry[];
   onSelect: (id: string) => void;
   onClose: () => void;
+  active?: boolean;
 }) {
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState<string>();
@@ -35,6 +37,7 @@ export function ChatSearch({
       <label className="search-field">
         <Search size={17} />
         <input
+          disabled={!active}
           aria-label="Поиск в загруженной истории"
           placeholder="Поиск в истории"
           value={query}

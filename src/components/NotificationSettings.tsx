@@ -12,11 +12,18 @@ export function NotificationSettings() {
   const [permission, setPermission] = useState('unknown');
   const [busy, setBusy] = useState(false);
   const [testResult, setTestResult] = useState('');
+  const [retryAt, setRetryAt] = useState(0);
+  useEffect(() => {
+    if (!retryAt) return;
+    const timer = setTimeout(() => setRetryAt(0), Math.max(0, retryAt - Date.now()));
+    return () => clearTimeout(timer);
+  }, [retryAt]);
   useEffect(() => {
     setInfo(bridgeInfo);
   }, [bridgeInfo]);
   useEffect(() => {
     setTestResult('');
+    setRetryAt(0);
   }, [client]);
   useEffect(() => {
     if (!isNative) return;
@@ -69,6 +76,25 @@ export function NotificationSettings() {
           <p>Вопросы, разрешения и ошибки. Отмена генерации — без сигнала.</p>
         </div>
       </div>
+      <div className="notification-info">
+        <strong>
+          {topic
+            ? 'Тема ntfy создана — нужна подписка на телефоне'
+            : info?.push.registered
+              ? 'Устройство зарегистрировано в APNs'
+              : 'Канал доставки ещё не подключён'}
+        </strong>
+        <p>
+          {topic
+            ? 'Создание темы не подписывает iPhone автоматически. Выполните шаги ниже и проверьте тест.'
+            : 'Для уведомлений при закрытом Pocket компьютер и мост должны оставаться включёнными.'}
+        </p>
+        {bridge && info && !info.online && (
+          <p className="inline-error">
+            Мост доступен, но связи с OpenCode нет. Сначала восстановите её на компьютере.
+          </p>
+        )}
+      </div>
       {isNative && (platform !== 'ios' || info?.push.apns) && (
         <>
           <Toggle
@@ -82,7 +108,7 @@ export function NotificationSettings() {
             label="Уведомления в OCC"
             description={
               platform === 'ios'
-                ? 'APNs на мосте. Нужна подпись с Push Notifications.'
+                ? `APNs: ${info?.push.apnsEnvironment === 'production' ? 'production' : 'development/sandbox'}. Подпись приложения должна поддерживать Push Notifications и это окружение.`
                 : 'Фоновое соединение. Энергосбережение может ограничивать доставку.'
             }
           />
@@ -109,8 +135,8 @@ export function NotificationSettings() {
       )}
       {platform === 'ios' && !info?.push.apns && (
         <p className="form-hint">
-          Для IPA с sideload используйте ntfy: уведомления приходят в отдельное приложение даже при закрытом
-          OCC.
+          Для IPA с обычной sideload-подписью используйте ntfy из App Store. Баннеры приходят от ntfy, даже
+          при закрытом Pocket. Это не требует постоянного фонового соединения Pocket.
         </p>
       )}
       {info?.push.sharedNtfy && (
@@ -142,8 +168,16 @@ export function NotificationSettings() {
               <strong>Добавьте подписку в ntfy</strong>
               <ol>
                 <li>
-                  <ExternalLink href="https://docs.ntfy.sh/subscribe/phone/">Установить ntfy</ExternalLink> и
-                  разрешить ему уведомления.
+                  <ExternalLink
+                    href={
+                      platform === 'ios'
+                        ? 'https://apps.apple.com/app/ntfy/id1625396347'
+                        : 'https://docs.ntfy.sh/subscribe/phone/'
+                    }
+                  >
+                    Установить ntfy
+                  </ExternalLink>{' '}
+                  и разрешить ему уведомления.
                 </li>
                 <li>
                   Нажать «+», выбрать сервер <code>https://ntfy.sh</code> и вставить тему:
@@ -152,6 +186,10 @@ export function NotificationSettings() {
               <div className="notification-topic">
                 <code>{topic}</code>
                 <CopyButton text={topic} label="Копировать тему ntfy" />
+              </div>
+              <div className="notification-topic">
+                <span>Сервер: https://ntfy.sh</span>
+                <CopyButton text="https://ntfy.sh" label="Копировать сервер ntfy" />
               </div>
               <p>
                 Затем нажмите тест ниже. Он должен появиться в ntfy. Сохраните тему только у себя: она даёт
@@ -171,16 +209,18 @@ export function NotificationSettings() {
         <Button
           variant="secondary"
           busy={busy}
-          disabled={!topic && !info?.push.registered && !info?.push.ntfy}
+          disabled={Boolean(retryAt) || (!topic && !info?.push.registered && !info?.push.ntfy)}
           onClick={() =>
             operate(async () => {
-              const result = await client!.companion<{ dispatched: boolean; failed?: number }>(
-                '/notifications/test',
-                'POST',
-              );
+              setRetryAt(Date.now() + 30_000);
+              const result = await client!.companion<{
+                dispatched: boolean;
+                failed?: number;
+                errors?: string[];
+              }>('/notifications/test', 'POST');
               const text = result.dispatched
                 ? `Сервис принял тест${result.failed ? ', но один из каналов вернул ошибку' : ''}. Проверьте ${topic ? 'ntfy' : 'телефон'}: это ещё не подтверждение получения.`
-                : 'Тест не отправлен. Проверьте канал и журнал моста на компьютере.';
+                : `Тест не отправлен. ${result.errors?.join('; ') || 'Проверьте канал и журнал моста на компьютере.'}`;
               setTestResult(text);
               notify(text, !result.dispatched);
             })
@@ -190,6 +230,29 @@ export function NotificationSettings() {
         </Button>
       )}
       {testResult && <output className="form-hint">{testResult}</output>}
+      {retryAt > 0 && <p className="form-hint">Следующий тест доступен через 30 секунд после предыдущего.</p>}
+      <details className="notification-info">
+        <summary>На iPhone уведомление не появилось</summary>
+        <ol>
+          <li>
+            Проверьте, что в ntfy добавлена именно текущая тема и сервер https://ntfy.sh. После выключения и
+            повторного включения доставки тема меняется.
+          </li>
+          <li>
+            Разрешите уведомления ntfy в настройках iOS, отключите паузу подписки в ntfy и проверьте
+            «Фокусирование» и сводку уведомлений.
+          </li>
+          <li>
+            Сверните Pocket и отправьте настоящее событие: вопрос или запрос разрешения. Обычное завершение
+            ответа сейчас не создаёт уведомление.
+          </li>
+          <li>
+            Для APNs прямо в Pocket нужны Apple Developer, push-профиль подписи и ключ APNs на мосте. Обычная
+            бесплатная sideload-подпись этого не обеспечивает.
+          </li>
+        </ol>
+        <ExternalLink href="https://apps.apple.com/app/ntfy/id1625396347">ntfy в App Store</ExternalLink>
+      </details>
       <details className="notification-info">
         <summary>Условия фоновой доставки</summary>
         <p>

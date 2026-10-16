@@ -54,7 +54,12 @@ describe('push delivery', () => {
     const { service, log } = setup();
     const fetcher = vi.fn().mockResolvedValue(new Response('', { status: 429 }));
     vi.stubGlobal('fetch', fetcher);
-    expect(await service.test('a')).toEqual({ attempted: 1, delivered: 0, failed: 1 });
+    expect(await service.test('a')).toEqual({
+      attempted: 1,
+      delivered: 0,
+      failed: 1,
+      errors: ['ntfy HTTP 429'],
+    });
     expect(JSON.parse(fetcher.mock.calls[0]![1].body).topic).toBe(`occ-${'a'.repeat(48)}`);
     expect(log).toHaveBeenCalledWith('Push delivery failed: ntfy HTTP 429');
   });
@@ -71,5 +76,12 @@ describe('push delivery', () => {
     expect(JSON.stringify(fetcher.mock.calls)).not.toContain('secret prompt');
     store.devices = [];
     expect(await service.test('a')).toEqual({ attempted: 0, delivered: 0, failed: 0 });
+  });
+  it('does not expose endpoint or credential text in delivery errors returned to the phone', async () => {
+    const { service } = setup();
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('private-topic credential-value')));
+    const result = await service.test('a');
+    expect(result).toMatchObject({ attempted: 1, delivered: 0, failed: 1 });
+    expect(result.errors).toEqual(['Не удалось связаться с сервисом уведомлений']);
   });
 });

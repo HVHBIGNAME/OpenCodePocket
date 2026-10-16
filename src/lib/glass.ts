@@ -50,11 +50,13 @@ export function installGlassHandling(native = isNative && platform === 'ios', ap
     captureDiagnostic(error, { kind: 'action' });
   };
   const measure = () => {
-    if (disposed || root.dataset.glassRenderer !== 'native') return;
+    frame = 0;
+    if (disposed || document.hidden || root.dataset.glassRenderer !== 'native') return;
     if (performance.now() < animationUntil) frame = requestAnimationFrame(measure);
     const viewport = window.visualViewport;
     const blocked =
-      Boolean(document.querySelector('dialog[open]')) || (viewport && Math.abs(viewport.scale - 1) > 0.01);
+      Boolean(document.querySelector('dialog[open], [data-page-transition]')) ||
+      (viewport && Math.abs(viewport.scale - 1) > 0.01);
     if (blocked) restoreAll();
     const regions: GlassRegion[] = blocked
       ? []
@@ -116,8 +118,12 @@ export function installGlassHandling(native = isNative && platform === 'ios', ap
       .catch(fail);
   };
   const schedule = () => {
-    cancelAnimationFrame(frame);
+    if (disposed || document.hidden || frame || root.dataset.glassRenderer !== 'native') return;
     frame = requestAnimationFrame(measure);
+  };
+  const scroll = (event: Event) => {
+    const scroller = event.target;
+    if (!(scroller instanceof Element) || targets.some((target) => scroller.contains(target))) schedule();
   };
   const resize = new ResizeObserver(schedule);
   const discover = () => {
@@ -170,14 +176,34 @@ export function installGlassHandling(native = isNative && platform === 'ios', ap
       )
     )
       discover();
-    else schedule();
+    else if (
+      records.some((record) => {
+        const element = record.target instanceof Element ? record.target : record.target.parentElement;
+        return (
+          element &&
+          (element.matches('dialog, [data-page-transition]') ||
+            record.attributeName === 'data-page-transition' ||
+            targets.some((target) => target.contains(element) || element.contains(target)))
+        );
+      })
+    )
+      schedule();
   });
   content.observe(document.body, {
     subtree: true,
     childList: true,
     characterData: true,
     attributes: true,
-    attributeFilter: ['disabled', 'aria-label', 'open', 'hidden', 'class', 'style'],
+    attributeFilter: [
+      'disabled',
+      'aria-label',
+      'open',
+      'hidden',
+      'inert',
+      'data-page-transition',
+      'class',
+      'style',
+    ],
   });
   const keyboardFrame = (event: Event) => {
     const duration = (event as CustomEvent<{ duration?: number }>).detail?.duration ?? 0;
@@ -190,7 +216,11 @@ export function installGlassHandling(native = isNative && platform === 'ios', ap
       reconcile();
     }),
     api.addListener('glassAction', ({ id }) => {
-      if (document.querySelector('dialog[open]') || root.dataset.glassRenderer !== 'native') return;
+      if (
+        document.querySelector('dialog[open], [data-page-transition]') ||
+        root.dataset.glassRenderer !== 'native'
+      )
+        return;
       const element = targets.find((target) => target.dataset.pocketGlass === id);
       if (element?.isConnected && !element.disabled && hidden.has(element)) element.click();
     }),
@@ -206,10 +236,16 @@ export function installGlassHandling(native = isNative && platform === 'ios', ap
     .catch(fail);
   for (const media of [contrast, transparency]) media.addEventListener('change', reconcile);
   window.addEventListener('resize', schedule);
-  window.addEventListener('scroll', schedule, { passive: true, capture: true });
+  window.addEventListener('scroll', scroll, { passive: true, capture: true });
   window.addEventListener('pocket:keyboard-frame', keyboardFrame);
   window.visualViewport?.addEventListener('resize', schedule);
   window.visualViewport?.addEventListener('scroll', schedule);
+  const visibility = () => {
+    cancelAnimationFrame(frame);
+    frame = 0;
+    if (!document.hidden) schedule();
+  };
+  document.addEventListener('visibilitychange', visibility);
   reconcile();
   return () => {
     disposed = true;
@@ -219,9 +255,10 @@ export function installGlassHandling(native = isNative && platform === 'ios', ap
     appearance.disconnect();
     content.disconnect();
     resize.disconnect();
+    document.removeEventListener('visibilitychange', visibility);
     for (const media of [contrast, transparency]) media.removeEventListener('change', reconcile);
     window.removeEventListener('resize', schedule);
-    window.removeEventListener('scroll', schedule, true);
+    window.removeEventListener('scroll', scroll, true);
     window.removeEventListener('pocket:keyboard-frame', keyboardFrame);
     window.visualViewport?.removeEventListener('resize', schedule);
     window.visualViewport?.removeEventListener('scroll', schedule);

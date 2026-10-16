@@ -22,6 +22,7 @@ import { FavoritesStore, useFavorites } from './favorites';
 import { defaultSessionFilters } from '../lib/session-search';
 import { isGenerationCancelled } from '../lib/session-errors';
 import { NotificationGate } from '../../shared/notification-policy';
+import { eventBatch } from './event-batch';
 import {
   attachDiagnosticClient,
   captureDiagnostic,
@@ -63,6 +64,16 @@ function usePocketState() {
   const [data, setData] = useState<LiveData>(emptyData);
   const sessionListView = useRef({ order: [] as string[], scroll: 0, visible: 60 });
   const chatPositions = useRef(new Map<string, { top: number; bottom: boolean }>());
+  const questionDrafts = useRef(
+    new Map<string, { selected: string[][]; custom: string[]; step: number; signature: string }>(),
+  );
+  useEffect(() => {
+    questionDrafts.current.clear();
+  }, [client]);
+  useEffect(() => {
+    const pending = new Set(data.questions.map((question) => question.id));
+    for (const id of questionDrafts.current.keys()) if (!pending.has(id)) questionDrafts.current.delete(id);
+  }, [data.questions]);
   const dataRef = useRef(data);
   useLayoutEffect(() => {
     dataRef.current = data;
@@ -99,6 +110,7 @@ function usePocketState() {
   const connectionSequence = useRef(0);
   const navigationSequence = useRef(0);
   const streamQueue = useRef(Promise.resolve());
+  const flushEvents = useRef<() => void>(() => undefined);
   const session = data.sessions.find((item) => item.id === sessionID);
   useLayoutEffect(() => {
     sessionRef.current = session;
@@ -177,6 +189,7 @@ function usePocketState() {
       );
       if (!Array.isArray(messages)) throw new Error('Сервер вернул некорректную историю');
       if (source === clientRef.current && !request.controller.signal.aborted) {
+        flushEvents.current();
         loadedLimits.current.set(target.id, request.limit);
         setHistoryLimits((previous) => ({ ...previous, [target.id]: request.limit }));
         setData((previous) =>
@@ -387,7 +400,7 @@ function usePocketState() {
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
     let syncFailures = 0;
     const sync = () => {
-      if (cancelled || unauthorized || client !== clientRef.current) return;
+      if (cancelled || unauthorized || document.hidden || client !== clientRef.current) return;
       clearTimeout(retryTimer);
       void refresh(client)
         .then(() => {
@@ -407,19 +420,26 @@ function usePocketState() {
       hydrateTimer = setTimeout(() => {
         hydrateTimer = undefined;
         const target = sessionRef.current;
-        if (!cancelled && target)
+        if (!cancelled && !document.hidden && target)
           void loadMessages(target).catch((error: unknown) => notify(errorMessage(error), true));
       }, 120);
     };
+    const batch = eventBatch((events) => {
+      if (!cancelled && client === clientRef.current)
+        setData((previous) => events.reduce(applyEvent, previous));
+    });
+    flushEvents.current = batch.flush;
     const handleEvent = (event: ServerEvent) => {
       if (cancelled || client !== clientRef.current) return;
       if (event.type === 'occ.unauthorized') {
         unauthorized = true;
+        batch.clear();
         clearTimeout(retryTimer);
         setStatus('offline');
         notify('Доступ отозван. Подключитесь заново.', true);
         return;
       }
+      if (document.hidden) return;
       const upstreamRecovered =
         event.type === 'occ.upstream' && event.properties.online === true && !upstreamOnline;
       if (event.type === 'occ.upstream' || event.type === 'occ.connected') {
@@ -442,7 +462,7 @@ function usePocketState() {
         )
           notify(error?.data?.message ?? 'В сессии произошла ошибка. Проверьте ответ провайдера.', true);
       }
-      setData((previous) => applyEvent(previous, event));
+      batch.push(event);
       if (
         (event.type.startsWith('session.next.') || event.type === 'session.idle') &&
         event.properties.sessionID === sessionRef.current?.id
@@ -472,15 +492,26 @@ function usePocketState() {
         }
       });
     const resume = () => {
-      if (document.hidden || cancelled || client !== clientRef.current) return;
+      if (document.hidden) {
+        batch.clear();
+        clearTimeout(retryTimer);
+        clearTimeout(hydrateTimer);
+        hydrateTimer = undefined;
+        return;
+      }
+      if (cancelled || client !== clientRef.current) return;
       sync();
       hydrate();
     };
     document.addEventListener('visibilitychange', resume);
+    document.addEventListener('pocket:resume', resume);
     window.addEventListener('online', resume);
     return () => {
       cancelled = true;
+      batch.clear();
+      if (flushEvents.current === batch.flush) flushEvents.current = () => undefined;
       document.removeEventListener('visibilitychange', resume);
+      document.removeEventListener('pocket:resume', resume);
       window.removeEventListener('online', resume);
       clearTimeout(retryTimer);
       if (hydrateTimer) clearTimeout(hydrateTimer);
@@ -591,9 +622,7 @@ function usePocketState() {
       NativeApp.addListener('appUrlOpen', handleUrl),
       NativeApp.addListener('appStateChange', ({ isActive }) => {
         if (isActive) {
-          void refresh().catch((error: unknown) => notify(errorMessage(error), true));
-          const target = sessionRef.current;
-          if (target) void loadMessages(target).catch((error: unknown) => notify(errorMessage(error), true));
+          document.dispatchEvent(new Event('pocket:resume'));
         } else void drafts.flushAll();
       }),
       PocketNative.addListener('notificationTap', ({ sessionID: id }) => {
@@ -611,11 +640,7 @@ function usePocketState() {
           return;
         }
         if (connectOpen) setConnectOpen(false);
-        else if (
-          screen === 'chat' &&
-          !document.dispatchEvent(new Event('pocket:navigate-back', { cancelable: true }))
-        )
-          return;
+        else if (!document.dispatchEvent(new Event('pocket:navigate-back', { cancelable: true }))) return;
         else if (screen === 'chat' && sessionRef.current?.parentID) {
           void openRelatedSession(sessionRef.current.parentID, sessionRef.current.directory).catch(
             (error: unknown) => notify(errorMessage(error), true),
@@ -824,6 +849,7 @@ function usePocketState() {
     data,
     sessionListView,
     chatPositions,
+    questionDrafts,
     drafts,
     favoriteState,
     toggleFavorite,
@@ -885,4 +911,7 @@ export function usePocket() {
   const context = useContext(PocketContext);
   if (!context) throw new ApiError(500, 'PocketProvider missing');
   return context;
+}
+export function PocketSnapshot({ value, children }: { value: PocketState; children: ReactNode }) {
+  return <PocketContext.Provider value={value}>{children}</PocketContext.Provider>;
 }

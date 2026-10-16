@@ -18,6 +18,7 @@ final class PocketEventStream: NSObject, URLSessionDataDelegate {
     private var retry: DispatchWorkItem?
     private var failures = 0
     private var stopped = false
+    private var paused = false
     private var connected = false
     private var lastActivity = Date.distantPast
     private let network = NWPathMonitor()
@@ -39,7 +40,7 @@ final class PocketEventStream: NSObject, URLSessionDataDelegate {
             let available = path.status == .satisfied
             let signature = "\(available):\(path.usesInterfaceType(.wifi)):\(path.usesInterfaceType(.cellular)):\(path.usesInterfaceType(.wiredEthernet))"
             DispatchQueue.main.async {
-                guard let self = self, !self.stopped else { return }
+                guard let self = self, !self.stopped, !self.paused else { return }
                 let previous = self.networkPath
                 self.networkPath = signature
                 if !available {
@@ -58,7 +59,7 @@ final class PocketEventStream: NSObject, URLSessionDataDelegate {
     }
 
     func start() {
-        guard !stopped, task == nil else { return }
+        guard !stopped, !paused, task == nil else { return }
         var request = URLRequest(url: address)
         request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
         request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
@@ -75,6 +76,7 @@ final class PocketEventStream: NSObject, URLSessionDataDelegate {
 
     func resume(force: Bool = false) {
         guard !stopped else { return }
+        paused = false
         if !force, task != nil, connected, Date().timeIntervalSince(lastActivity) < 25 {
             onState(true)
             return
@@ -95,6 +97,19 @@ final class PocketEventStream: NSObject, URLSessionDataDelegate {
         session?.invalidateAndCancel()
         task = nil
         session = nil
+    }
+
+    func pause() {
+        paused = true
+        retry?.cancel()
+        retry = nil
+        let previous = task
+        task = nil
+        previous?.cancel()
+        connected = false
+        buffer = Data()
+        lines = []
+        dataSize = 0
     }
 
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse, completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {

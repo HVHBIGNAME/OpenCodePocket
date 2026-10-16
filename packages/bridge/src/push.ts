@@ -29,12 +29,14 @@ export class PushService {
     return this.deliver(
       { title: 'Проверка уведомлений OCC', body: 'Канал доставки работает. Это тестовое уведомление.' },
       deviceID,
+      true,
     );
   }
 
   private async deliver(
     notification: { title: string; body: string; sessionID?: string },
     deviceID?: string,
+    test = false,
   ) {
     const jobs: Promise<unknown>[] = [];
     const targets = this.devices.devices.filter((device) => !deviceID || device.id === deviceID);
@@ -78,6 +80,7 @@ export class PushService {
               'thread-id': notification.sessionID ?? 'occ',
             },
             sessionID: notification.sessionID,
+            occTest: test,
           }).catch(async (error: unknown) => {
             if (error instanceof Error && /BadDeviceToken|Unregistered/.test(error.message))
               await this.devices.setPush(device.id);
@@ -87,14 +90,29 @@ export class PushService {
       }
     }
     let delivered = 0;
+    const errors: string[] = [];
     for (const result of await Promise.allSettled(jobs)) {
       if (result.status === 'fulfilled') delivered++;
-      if (result.status === 'rejected')
+      if (result.status === 'rejected') {
+        const message = result.reason instanceof Error ? result.reason.message : '';
+        const status = message.match(/^(ntfy HTTP \d+|APNs \d+)/)?.[0];
+        const reason = message.match(
+          /BadDeviceToken|DeviceTokenNotForTopic|ExpiredProviderToken|InvalidProviderToken|Unregistered|TopicDisallowed/,
+        )?.[0];
+        errors.push(
+          [status ?? 'Не удалось связаться с сервисом уведомлений', reason].filter(Boolean).join(' · '),
+        );
         this.log(
           `Push delivery failed: ${result.reason instanceof Error ? result.reason.message : 'unknown error'}`,
         );
+      }
     }
-    return { attempted: jobs.length, delivered, failed: jobs.length - delivered };
+    return {
+      attempted: jobs.length,
+      delivered,
+      failed: jobs.length - delivered,
+      ...(errors.length ? { errors: [...new Set(errors)] } : {}),
+    };
   }
 
   private async authorization(): Promise<string> {

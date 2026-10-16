@@ -288,6 +288,23 @@ const server = createServer((request, response) => {
     }
     if (url.pathname === '/__test/state')
       return send(response, { config, prompts, replies, providerKeys, commandRequests });
+    if (url.pathname === '/__test/stream-burst') {
+      const part = messages.ses_panel![1]!.parts.find((item) => item.id === 'prt_answer')!;
+      if (part.type !== 'text') throw new Error('Missing streaming fixture');
+      for (let i = 0; i < 60; i++) {
+        const delta = ` PERF${i}`;
+        part.text += delta;
+        emit('message.part.delta', {
+          sessionID: 'ses_panel',
+          messageID: 'msg_answer',
+          partID: part.id,
+          field: 'text',
+          delta,
+        });
+        await new Promise((resolve) => setTimeout(resolve, 8));
+      }
+      return send(response, true);
+    }
     if (url.pathname === '/__test/event') {
       const type = String(payload.type);
       const properties = payload.properties as Record<string, unknown>;

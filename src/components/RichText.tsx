@@ -1,4 +1,4 @@
-import { Children, isValidElement, type ReactNode } from 'react';
+import { Children, isValidElement, memo, type ReactNode } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { FileText } from 'lucide-react';
@@ -20,7 +20,7 @@ export function CodeBlock({ children }: { children: ReactNode }) {
   );
 }
 
-export function RichText({ text }: { text: string }) {
+export const RichText = memo(function RichText({ text }: { text: string }) {
   return (
     <div className="markdown">
       <Markdown
@@ -44,4 +44,4 @@ export function RichText({ text }: { text: string }) {
       </Markdown>
     </div>
   );
-}
+});

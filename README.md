@@ -34,18 +34,18 @@
 
 ## Установка
 
-**Android:** [скачать подписанный APK](https://github.com/HVHBIGNAME/OpenCodePocket/releases/download/v1.0.6/OpenCodePocket-1.0.6-android.apk). APK подписан постоянным ключом проекта. Android 8+.
+**Android:** [скачать подписанный APK](https://github.com/HVHBIGNAME/OpenCodePocket/releases/download/v1.0.7/OpenCodePocket-1.0.7-android.apk). APK подписан постоянным ключом проекта. Android 8+.
 
-**iOS:** [скачать IPA](https://github.com/HVHBIGNAME/OpenCodePocket/releases/download/v1.0.6/OpenCodePocket-1.0.6-ios-unsigned.ipa). Это скомпилированный arm64 IPA для iOS 15+, **без Apple-подписи**. Для установки нужна самостоятельная подпись через Sideloadly/AltStore или свою Apple Developer-команду. Фоновый APNs требует подходящих entitlements и provisioning profile. [Подробнее](docs/build.md#ios).
+**iOS:** [скачать IPA](https://github.com/HVHBIGNAME/OpenCodePocket/releases/download/v1.0.7/OpenCodePocket-1.0.7-ios-unsigned.ipa). Это скомпилированный arm64 IPA для iOS 15+, **без Apple-подписи**. Для установки нужна самостоятельная подпись через Sideloadly/AltStore или свою Apple Developer-команду. Фоновый APNs требует подходящих entitlements и provisioning profile. [Подробнее](docs/build.md#ios).
 
 ### Компьютер → телефон
 
-**Windows:** [скачай `Install-Pocket.cmd`](https://github.com/HVHBIGNAME/OpenCodePocket/releases/download/v1.0.6/Install-Pocket.cmd) и запусти двойным щелчком. Установщик сам скачает Node.js, если его нет, и `cloudflared`, проверит контрольные суммы и подключит плагин.
+**Windows:** [скачай `Install-Pocket.cmd`](https://github.com/HVHBIGNAME/OpenCodePocket/releases/download/v1.0.7/Install-Pocket.cmd) и запусти двойным щелчком. Установщик сам скачает Node.js, если его нет, и `cloudflared`, проверит контрольные суммы и подключит плагин.
 
 **macOS / Linux:**
 
 ```sh
-curl -fsSL https://github.com/HVHBIGNAME/OpenCodePocket/releases/download/v1.0.6/install-pocket.sh | sh
+curl -fsSL https://github.com/HVHBIGNAME/OpenCodePocket/releases/download/v1.0.7/install-pocket.sh | sh
 ```
 
 1. После установки плагина **перезапусти OpenCode**. HTTP-порт настраивается автоматически, существующий порт сохраняется.
@@ -57,7 +57,7 @@ curl -fsSL https://github.com/HVHBIGNAME/OpenCodePocket/releases/download/v1.0.6
 Если Node.js уже установлен, доступна одна команда:
 
 ```sh
-npx --yes --package=https://github.com/HVHBIGNAME/OpenCodePocket/releases/download/v1.0.6/hvhbigname-occ-bridge-1.0.6.tgz occ-pocket install
+npx --yes --package=https://github.com/HVHBIGNAME/OpenCodePocket/releases/download/v1.0.7/hvhbigname-occ-bridge-1.0.7.tgz occ-pocket install
 ```
 
 Если OpenCode уже слушает порт, можно подключить мост без перезапуска:
@@ -71,6 +71,14 @@ occ-pocket start --upstream http://127.0.0.1:4096 --tunnel
 Свой туннель: `--url https://your-tunnel.example` вместо `--tunnel`. Локальная сеть/VPN: `--lan`. [Все сценарии →](docs/connect.md)
 
 ## Интерфейс
+
+### В версии 1.0.7
+
+- Переходы целых страниц и интерактивный возврат за пальцем: сессии, настройки, агенты и файлы. Сохраняются черновики, ответы на вопросы и место чтения; выбор модели открывается внутри одной нижней панели.
+- Меньше работы при генерации: потоковые события объединяются, неизменившийся Markdown не разбирается повторно, закрытые результаты инструментов создаются при раскрытии. Liquid Glass не измеряет кнопки при обычной прокрутке текста.
+- iOS приостанавливает SSE и диктовку в фоне и восстанавливает состояние при возвращении. Снижение фактического расхода батареи требует замера на устройстве — [как проверить](docs/performance.md).
+- В диалоге показано использование контекста; кнопка «Сжать контекст» сохраняет черновик и недоступна во время генерации.
+- Пошаговая настройка ntfy для sideload iPhone, состояние канала и причины отказа тестовой доставки. Для APNs показано окружение моста; тестовый баннер разрешён и при открытом Pocket.
 
 ### В версии 1.0.6
 

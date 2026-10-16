@@ -27,13 +27,17 @@ import { Composer } from '../components/Composer';
 import { SessionDetails } from '../components/SessionDetails';
 import { ChatSearch } from '../components/ChatSearch';
 import { AgentSessions } from '../components/AgentSessions';
+import { SessionContext } from '../components/SessionContext';
 import type { MessageEntry, Session } from '../types';
-import { dragFeedback, useSwipe } from '../lib/gestures';
+import { PageSlider } from '../components/PageSlider';
+import { usePageActive, usePageBack } from '../components/PageDeck';
 
 const emptyMessages: MessageEntry[] = [];
 const chatTabs = ['chat', 'diff', 'todos', 'files'] as const;
 
 export function Chat() {
+  const activePage = usePageActive();
+  const pageBack = usePageBack();
   const {
     session,
     data,
@@ -45,6 +49,7 @@ export function Chat() {
     perform,
     status,
     openRelatedSession,
+    openSession,
     refresh,
     refreshing,
     setConnectOpen,
@@ -75,6 +80,7 @@ export function Chat() {
   const positions = chatPositions;
   const previousTab = useRef(tab);
   const pageRef = useRef<HTMLDivElement>(null);
+  const indicatorRef = useRef<HTMLSpanElement>(null);
   const backFromDetails = useRef<(() => void) | undefined>(undefined);
   const [detailBackLabel, setDetailBackLabel] = useState('');
   const onDetailBack = useCallback((handler?: () => void, label = '') => {
@@ -82,15 +88,18 @@ export function Chat() {
     setDetailBackLabel(label);
   }, []);
   const goBack = () => {
-    if (backFromDetails.current) {
+    if (tab === 'files' && backFromDetails.current) {
       backFromDetails.current();
-      return;
+      return chatTabs.indexOf(tab);
     }
     if (tab !== 'chat') {
       setTab('chat');
-      return;
+      return 0;
     }
-    if (session?.parentID) void perform(() => openRelatedSession(session.parentID!, session.directory));
+    if (pageBack()) return;
+    const parent = data.sessions.find((item) => item.id === session?.parentID);
+    if (parent) openSession(parent);
+    else if (session?.parentID) void perform(() => openRelatedSession(session.parentID!, session.directory));
     else setScreen('sessions');
   };
   const backAction = useRef(goBack);
@@ -98,48 +107,14 @@ export function Chat() {
     backAction.current = goBack;
   });
   useEffect(() => {
+    if (!activePage) return;
     const back = (event: Event) => {
       event.preventDefault();
       backAction.current();
     };
     document.addEventListener('pocket:navigate-back', back);
     return () => document.removeEventListener('pocket:navigate-back', back);
-  }, []);
-  const edgeSwipe = useRef(false);
-  useSwipe(pageRef, {
-    axis: 'x',
-    resetKey: `${selectedID}:${tab}`,
-    canStart: (target, x) => {
-      if (
-        document.querySelector('dialog[open]') ||
-        target.closest(
-          'pre, code, input, textarea, select, a, summary, [contenteditable="true"], .composer-wrap',
-        )
-      )
-        return false;
-      if (target.closest('button') && !target.closest('.chat-tabs')) return false;
-      edgeSwipe.current = x - (pageRef.current?.getBoundingClientRect().left ?? 0) <= 28;
-      return edgeSwipe.current || Boolean(target.closest('.chat-scroll, .details-scroll, .chat-tabs'));
-    },
-    onProgress: (distance) =>
-      dragFeedback(
-        pageRef.current,
-        'x',
-        edgeSwipe.current ? Math.max(0, Math.min(distance, 220)) : Math.max(-36, Math.min(distance, 36)),
-      ),
-    onSwipe: (direction) => {
-      if (edgeSwipe.current && direction > 0) {
-        haptic();
-        goBack();
-        return;
-      }
-      const next = chatTabs[chatTabs.indexOf(tab) - direction];
-      if (next) {
-        haptic();
-        setTab(next);
-      }
-    },
-  });
+  }, [activePage]);
   const questions = data.questions.filter((item) => item.sessionID === session?.id);
   const permissions = data.permissions.filter((item) => item.sessionID === session?.id);
   const requestCount = questions.length + permissions.length;
@@ -193,11 +168,11 @@ export function Chat() {
     );
   const busy = data.statuses[session.id]?.type === 'busy' || data.statuses[session.id]?.type === 'retry';
   return (
-    <div className="chat-page" ref={pageRef}>
+    <div className="chat-page" ref={pageRef} data-page-back={tab === 'chat' ? 'allow' : 'blocked'}>
       <header className="chat-heading">
         <IconButton
           label={
-            detailBackLabel ||
+            (tab === 'files' && detailBackLabel) ||
             (tab !== 'chat'
               ? 'Назад к диалогу'
               : session.parentID
@@ -209,6 +184,7 @@ export function Chat() {
           <ArrowLeft size={20} />
         </IconButton>
         <div>
+          <h1>{session.title}</h1>
           <span className="eyebrow">
             <GitBranch size={13} />
             {folderName(session.directory)}
@@ -219,7 +195,6 @@ export function Chat() {
               </span>
             )}
           </span>
-          <h1>{session.title}</h1>
         </div>
         <IconButton
           label="Поиск по диалогу"
@@ -264,6 +239,9 @@ export function Chat() {
               {label}
             </button>
           ))}
+          <span className="chat-tab-indicator" ref={indicatorRef} aria-hidden>
+            <i />
+          </span>
         </nav>
         <AgentSessions key={session.id} parentID={session.id} />
       </div>
@@ -282,133 +260,162 @@ export function Chat() {
           </Button>
         </div>
       )}
-      {tab === 'chat' ? (
-        <>
-          {searchOpen && (
-            <ChatSearch
-              key={`search.${session.id}`}
-              entries={entries}
-              onClose={() => {
-                setSearchOpen(false);
-                setSearchMatch(undefined);
-              }}
-              onSelect={(id) => {
-                setAtBottom(false);
-                setSearchMatch(id);
-                const element = scrollRef.current?.querySelector(`[data-message-id="${CSS.escape(id)}"]`);
-                if (element && scrollRef.current) {
-                  for (const detail of element.querySelectorAll('details')) detail.open = true;
-                  scrollRef.current.scrollTop +=
-                    element.getBoundingClientRect().top - scrollRef.current.getBoundingClientRect().top - 12;
-                }
-              }}
-            />
-          )}
-          <div
-            className="chat-scroll"
-            ref={scrollRef}
-            onScroll={() => {
-              const element = scrollRef.current;
-              if (element) {
-                const bottom = element.scrollHeight - element.scrollTop - element.clientHeight < 100;
-                setAtBottom(bottom);
-                positions.current.set(session.id, { top: element.scrollTop, bottom });
-              }
-            }}
-          >
-            <div className="messages-inner">
-              {missingReasoning && (
-                <details className="reasoning-availability">
-                  <summary>
-                    <Brain size={14} />О тексте рассуждений
-                  </summary>
-                  <p>
-                    Сервер передал некоторые блоки рассуждений без текста. Доступный текст показывается в
-                    сообщениях; пустые блоки скрыты.
-                  </p>
-                </details>
+      <PageSlider
+        key={session.id}
+        resetKey={session.id}
+        index={chatTabs.indexOf(tab)}
+        count={chatTabs.length}
+        surface={pageRef}
+        indicator={indicatorRef}
+        onSelect={(index) => {
+          haptic();
+          setTab(chatTabs[index]!);
+        }}
+        backIndex={tab !== 'chat' && !(tab === 'files' && detailBackLabel) ? 0 : undefined}
+        nestedBack={Boolean(tab === 'files' && detailBackLabel)}
+        render={(index, active, preview) =>
+          index === 0 ? (
+            <>
+              <SessionContext key={`context.${session.id}`} session={session} entries={entries} />
+              {searchOpen && (
+                <ChatSearch
+                  active={active}
+                  key={`search.${session.id}`}
+                  entries={entries}
+                  onClose={() => {
+                    setSearchOpen(false);
+                    setSearchMatch(undefined);
+                  }}
+                  onSelect={(id) => {
+                    setAtBottom(false);
+                    setSearchMatch(id);
+                    const element = scrollRef.current?.querySelector(`[data-message-id="${CSS.escape(id)}"]`);
+                    if (element && scrollRef.current) {
+                      for (const detail of element.querySelectorAll('details')) detail.open = true;
+                      scrollRef.current.scrollTop +=
+                        element.getBoundingClientRect().top -
+                        scrollRef.current.getBoundingClientRect().top -
+                        12;
+                    }
+                  }}
+                />
               )}
-              {entries.length >= limit && (
-                <div className="load-history">
-                  <Button
-                    variant="ghost"
-                    busy={messageLoading}
-                    onClick={() => {
-                      const scroller = scrollRef.current;
-                      const anchor =
-                        scroller &&
-                        [...scroller.querySelectorAll<HTMLElement>('[data-message-id]')].find(
-                          (item) =>
-                            item.getBoundingClientRect().bottom > scroller.getBoundingClientRect().top,
-                        );
-                      if (anchor?.dataset.messageId)
-                        prependAnchor.current = {
-                          id: anchor.dataset.messageId,
-                          top: anchor.getBoundingClientRect().top,
-                          entries,
-                        };
-                      setAtBottom(false);
-                      void perform(() => loadMessages(session, limit + 100)).then((success) => {
-                        if (!success) prependAnchor.current = undefined;
-                      });
-                    }}
-                  >
-                    Загрузить более ранние сообщения
-                  </Button>
+              <div
+                className="chat-scroll"
+                ref={scrollRef}
+                onScroll={() => {
+                  const element = scrollRef.current;
+                  if (element) {
+                    const bottom = element.scrollHeight - element.scrollTop - element.clientHeight < 100;
+                    setAtBottom(bottom);
+                    positions.current.set(session.id, { top: element.scrollTop, bottom });
+                  }
+                }}
+              >
+                <div className="messages-inner">
+                  {missingReasoning && (
+                    <details className="reasoning-availability">
+                      <summary>
+                        <Brain size={14} />О тексте рассуждений
+                      </summary>
+                      <p>
+                        Сервер передал некоторые блоки рассуждений без текста. Доступный текст показывается в
+                        сообщениях; пустые блоки скрыты.
+                      </p>
+                    </details>
+                  )}
+                  {entries.length >= limit && (
+                    <div className="load-history">
+                      <Button
+                        variant="ghost"
+                        busy={messageLoading}
+                        onClick={() => {
+                          const scroller = scrollRef.current;
+                          const anchor =
+                            scroller &&
+                            [...scroller.querySelectorAll<HTMLElement>('[data-message-id]')].find(
+                              (item) =>
+                                item.getBoundingClientRect().bottom > scroller.getBoundingClientRect().top,
+                            );
+                          if (anchor?.dataset.messageId)
+                            prependAnchor.current = {
+                              id: anchor.dataset.messageId,
+                              top: anchor.getBoundingClientRect().top,
+                              entries,
+                            };
+                          setAtBottom(false);
+                          void perform(() => loadMessages(session, limit + 100)).then((success) => {
+                            if (!success) prependAnchor.current = undefined;
+                          });
+                        }}
+                      >
+                        Загрузить более ранние сообщения
+                      </Button>
+                    </div>
+                  )}
+                  {!entries.length &&
+                    (messageLoading ? (
+                      <div className="loading-state">
+                        <LoaderCircle size={22} className="spin" />
+                        Загружаем контекст…
+                      </div>
+                    ) : (
+                      <EmptyState icon={<Code2 size={28} />} title="Нет сообщений">
+                        Введите запрос.
+                      </EmptyState>
+                    ))}
+                  {entries.map((entry) => (
+                    <MessageView
+                      key={entry.info.id}
+                      entry={entry}
+                      highlighted={entry.info.id === searchMatch}
+                    />
+                  ))}
+                  {busy && (
+                    <div className="thinking-indicator">
+                      <span className="mono">OpenCode работает</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+              {!atBottom && (
+                <div className="jump-bottom-anchor">
+                  <button className="jump-bottom" onClick={() => setAtBottom(true)}>
+                    <ArrowDown size={17} />К последнему
+                  </button>
                 </div>
               )}
-              {!entries.length &&
-                (messageLoading ? (
-                  <div className="loading-state">
-                    <LoaderCircle size={22} className="spin" />
-                    Загружаем контекст…
-                  </div>
-                ) : (
-                  <EmptyState icon={<Code2 size={28} />} title="Нет сообщений">
-                    Введите запрос.
-                  </EmptyState>
-                ))}
-              {entries.map((entry) => (
-                <MessageView key={entry.info.id} entry={entry} highlighted={entry.info.id === searchMatch} />
-              ))}
-              {busy && (
-                <div className="thinking-indicator">
-                  <span className="mono">OpenCode работает</span>
-                </div>
+              {requestCount > 0 && (
+                <button className="request-tray" onClick={() => setRequestsOpen(true)}>
+                  <MessageSquare size={19} />
+                  <span>Нужен твой ответ</span>
+                  <strong>{requestCount}</strong>
+                  <ChevronRight size={18} />
+                </button>
               )}
-            </div>
-          </div>
-          {!atBottom && (
-            <button className="jump-bottom" onClick={() => setAtBottom(true)}>
-              <ArrowDown size={17} />К последнему
-            </button>
-          )}
-          {requestCount > 0 && (
-            <button className="request-tray" onClick={() => setRequestsOpen(true)}>
-              <MessageSquare size={19} />
-              <span>Нужен твой ответ</span>
-              <strong>{requestCount}</strong>
-              <ChevronRight size={18} />
-            </button>
-          )}
-          {session.time.archived ? (
-            <div className="archived-notice">
-              Сессия в архиве. Восстановите её через меню действий, чтобы продолжить.
-            </div>
+              {session.time.archived ? (
+                <div className="archived-notice">
+                  Сессия в архиве. Восстановите её через меню действий, чтобы продолжить.
+                </div>
+              ) : (
+                <Composer key={session.id} session={session} active={active} />
+              )}
+            </>
           ) : (
-            <Composer key={session.id} session={session} />
-          )}
-        </>
-      ) : (
-        <div className="details-scroll">
-          <SessionDetails
-            key={`${session.id}-${tab}`}
-            session={session}
-            tab={tab}
-            onBackChange={onDetailBack}
-          />
-        </div>
-      )}
+            <div className={active || preview ? 'details-scroll' : 'details-scroll-cached'}>
+              <SessionDetails
+                key={`${session.id}-${index}`}
+                session={session}
+                tab={chatTabs[index] as 'diff' | 'todos' | 'files'}
+                active={active}
+                preload={preview}
+                gestureSurface={pageRef}
+                onBackChange={onDetailBack}
+              />
+            </div>
+          )
+        }
+      />
       {actions && <SessionActions session={session} onClose={() => setActions(false)} />}
       {requestsOpen && (
         <Modal

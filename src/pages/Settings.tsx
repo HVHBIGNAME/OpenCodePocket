@@ -1,6 +1,10 @@
 import { useEffect, useState } from 'react';
+import { PageDeck, usePageActive } from '../components/PageDeck';
 import {
   AudioLines,
+  ArrowLeft,
+  Bell,
+  Bug,
   Check,
   ChevronRight,
   GitBranch as Github,
@@ -10,17 +14,32 @@ import {
   ShieldCheck,
   Smartphone,
   Trash2,
+  Palette,
+  Download,
   Zap,
 } from 'lucide-react';
 import { z } from 'zod';
 import { APP_VERSION } from '../../shared/protocol';
 import { usePocket } from '../store/PocketProvider';
-import { Button, ExternalLink, Modal, Toggle } from '../components/ui';
+import { Button, ExternalLink, IconButton, Modal, Toggle } from '../components/ui';
 import type { Config, Device } from '../types';
 import { DiagnosticSettings } from '../components/DiagnosticSettings';
 import { AppearanceSettings } from '../components/AppearanceSettings';
 import { NotificationSettings } from '../components/NotificationSettings';
 import { UpdateSettings } from '../components/UpdateSettings';
+import { availableThemes, useAppearance } from '../lib/appearance';
+
+const settingSections = {
+  appearance: { title: 'Оформление', icon: Palette, hint: 'Тема и цветовой режим' },
+  notifications: { title: 'Уведомления', icon: Bell, hint: 'Ответы и события сессий' },
+  voice: { title: 'Голосовой ввод', icon: AudioLines, hint: 'Язык и распознавание речи' },
+  interface: { title: 'Интерфейс', icon: Smartphone, hint: 'Тактильный отклик' },
+  connection: { title: 'Подключение', icon: Laptop, hint: 'Компьютеры и устройства' },
+  permissions: { title: 'Разрешения OpenCode', icon: ShieldCheck, hint: 'Доступ к файлам и инструментам' },
+  updates: { title: 'Обновления', icon: Download, hint: `Версия ${APP_VERSION}` },
+  diagnostics: { title: 'Автоотчёты об ошибках', icon: Bug, hint: 'Диагностика и отправка отчётов' },
+} as const;
+type SettingsSection = keyof typeof settingSections;
 
 const permissionSchema = z.union([
   z.enum(['ask', 'allow', 'deny']),
@@ -43,8 +62,112 @@ function permissionPreset(mode: 'ask' | 'allow'): Config['permission'] {
 }
 
 export function Settings() {
-  const { client, preferences, setPreferences, setConnectOpen, setScreen, config, saveConfig, perform } =
-    usePocket();
+  const active = usePageActive();
+  const { client, setScreen, setConnectOpen, status } = usePocket();
+  const appearance = useAppearance();
+  const [section, setSection] = useState<SettingsSection>();
+  useEffect(() => {
+    if (!section || !active) return;
+    const back = (event: Event) => {
+      event.preventDefault();
+      setSection(undefined);
+    };
+    document.addEventListener('pocket:navigate-back', back);
+    return () => document.removeEventListener('pocket:navigate-back', back);
+  }, [section, active]);
+  return (
+    <PageDeck name="settings" pageKey={section ?? 'index'} scroll onBack={() => setSection(undefined)}>
+      {section ? (
+        <SettingsContent section={section} onBack={() => setSection(undefined)} />
+      ) : (
+        <div className="page settings-page">
+          <div className="page-heading">
+            <h1>Настройки</h1>
+          </div>
+          <button className="settings-workspace" onClick={() => setConnectOpen(true)}>
+            <span className="settings-workspace-icon">
+              <Laptop size={25} />
+            </span>
+            <span>
+              <strong>{client?.connection.name ?? 'Подключить компьютер'}</strong>
+              <small>
+                {!client
+                  ? 'Работайте с вашим OpenCode'
+                  : status === 'live'
+                    ? 'На связи'
+                    : status === 'offline'
+                      ? 'Нет соединения'
+                      : 'Подключаемся…'}
+              </small>
+            </span>
+            <ChevronRight size={19} />
+          </button>
+          {(
+            [
+              ['Приложение', ['appearance', 'notifications', 'voice', 'interface']],
+              ['OpenCode', ['connection', 'permissions']],
+              ['Поддержка', ['updates', 'diagnostics']],
+            ] as const
+          ).map(([title, entries]) => (
+            <section className="settings-group" key={title} aria-label={title}>
+              <h2>{title}</h2>
+              <div className="settings-menu">
+                {entries.map((id) => {
+                  const { title, icon: Icon, hint } = settingSections[id];
+                  return (
+                    <button
+                      className="settings-menu-row"
+                      aria-label={title}
+                      key={id}
+                      onClick={() => {
+                        setSection(id);
+                      }}
+                    >
+                      <span className={`settings-menu-icon settings-icon-${id}`}>
+                        <Icon size={20} />
+                      </span>
+                      <span>
+                        <strong>{title}</strong>
+                        <small>
+                          {id === 'appearance'
+                            ? `${availableThemes.find((theme) => theme.id === appearance.theme)?.name ?? appearance.theme} · ${appearance.scheme === 'system' ? 'Как на устройстве' : appearance.mode === 'dark' ? 'Тёмная' : 'Светлая'}`
+                            : hint}
+                        </small>
+                      </span>
+                      <ChevronRight size={17} />
+                    </button>
+                  );
+                })}
+                {title === 'OpenCode' && (
+                  <button className="settings-menu-row" onClick={() => setScreen('models')}>
+                    <span className="settings-menu-icon">
+                      <KeyRound size={20} />
+                    </span>
+                    <span>
+                      <strong>Модели и API-ключи</strong>
+                      <small>Провайдеры и параметры моделей</small>
+                    </span>
+                    <ChevronRight size={17} />
+                  </button>
+                )}
+              </div>
+            </section>
+          ))}
+          <footer className="settings-footer">
+            <span>OpenCode Pocket · {APP_VERSION}</span>
+            <ExternalLink href="https://github.com/HVHBIGNAME/OpenCodePocket">
+              <Github size={15} />
+              Исходный код
+            </ExternalLink>
+          </footer>
+        </div>
+      )}
+    </PageDeck>
+  );
+}
+
+function SettingsContent({ section, onBack }: { section: SettingsSection; onBack: () => void }) {
+  const { client, preferences, setPreferences, setConnectOpen, config, saveConfig, perform } = usePocket();
   const [pendingPermission, setPendingPermission] = useState<Config['permission']>();
   const [advanced, setAdvanced] = useState(false);
   const [devices, setDevices] = useState(false);
@@ -52,200 +175,186 @@ export function Settings() {
   useEffect(() => setPermissionEdits({}), [config.permission]);
   const permission = config.permission;
   return (
-    <div className="page settings-page">
+    <div className="page settings-page settings-detail">
       <div className="page-heading">
-        <div>
-          <h1>Настройки</h1>
-        </div>
-        <span className="version-badge mono">OCC / {APP_VERSION}</span>
+        <IconButton label="Назад к настройкам" onClick={onBack}>
+          <ArrowLeft size={22} />
+        </IconButton>
+        <h1>{settingSections[section].title}</h1>
       </div>
       <div className="settings-grid">
         <div className="settings-main">
-          <AppearanceSettings />
-          <section className="panel settings-section">
-            <div className="settings-section-title">
-              <Laptop size={20} />
-              <div>
-                <h2>Подключение</h2>
+          {section === 'appearance' && <AppearanceSettings />}
+          {section === 'connection' && (
+            <section className="panel settings-section">
+              <div className="settings-section-title">
+                <Laptop size={20} />
+                <div>
+                  <h2>Подключение</h2>
+                </div>
               </div>
-            </div>
-            <button className="settings-link-row" onClick={() => setConnectOpen(true)}>
-              <span className="settings-link-icon">
-                <Link2 size={20} />
-              </span>
-              <span>
-                <strong>{client?.connection.name ?? 'Добавить компьютер'}</strong>
-                <small>{client?.connection.url ?? 'QR-код, туннель или локальная сеть'}</small>
-              </span>
-              <ChevronRight size={18} />
-            </button>
-            {client?.connection.mode === 'bridge' && (
-              <button className="settings-link-row" onClick={() => setDevices(true)}>
+              <button className="settings-link-row" onClick={() => setConnectOpen(true)}>
                 <span className="settings-link-icon">
-                  <Smartphone size={20} />
+                  <Link2 size={20} />
                 </span>
                 <span>
-                  <strong>Подключённые устройства</strong>
-                  <small>Посмотреть и отозвать доступ</small>
+                  <strong>{client?.connection.name ?? 'Добавить компьютер'}</strong>
+                  <small>{client?.connection.url ?? 'QR-код, туннель или локальная сеть'}</small>
                 </span>
                 <ChevronRight size={18} />
               </button>
-            )}
-          </section>
-          <section className="panel settings-section">
-            <div className="settings-section-title">
-              <ShieldCheck size={20} />
-              <div>
-                <h2>Разрешения OpenCode</h2>
-                <p>Правила сохраняются в общих настройках OpenCode на компьютере.</p>
-              </div>
-            </div>
-            <div className="permission-presets">
-              <button disabled={!client} onClick={() => setPendingPermission(permissionPreset('ask'))}>
+              {client?.connection.mode === 'bridge' && (
+                <button className="settings-link-row" onClick={() => setDevices(true)}>
+                  <span className="settings-link-icon">
+                    <Smartphone size={20} />
+                  </span>
+                  <span>
+                    <strong>Подключённые устройства</strong>
+                    <small>Посмотреть и отозвать доступ</small>
+                  </span>
+                  <ChevronRight size={18} />
+                </button>
+              )}
+            </section>
+          )}
+          {section === 'permissions' && (
+            <section className="panel settings-section">
+              <div className="settings-section-title">
                 <ShieldCheck size={20} />
-                <strong>Под контролем</strong>
-                <span>Спрашивать перед действиями</span>
-              </button>
-              <button disabled={!client} onClick={() => setPendingPermission(permissionPreset('allow'))}>
-                <Check size={20} />
-                <strong>В потоке</strong>
-                <span>Правки — да, терминал — спросить</span>
-              </button>
-              <button disabled={!client} onClick={() => setPendingPermission('allow')}>
-                <Zap size={20} />
-                <strong>Автопилот</strong>
-                <span>Разрешать все действия</span>
-              </button>
-            </div>
-            <div className="permission-rules">
-              {tools.map(([id, label]) => {
-                const current =
-                  permissionEdits[id] ?? (typeof permission === 'string' ? permission : permission?.[id]);
-                return (
-                  <label className="permission-rule" key={id}>
-                    <span>
-                      {label}
-                      <code>{id}</code>
-                    </span>
-                    <select
-                      aria-label={label}
-                      disabled={!client}
-                      value={typeof current === 'string' ? current : current ? 'rules' : 'inherit'}
-                      onChange={(event) =>
-                        setPermissionEdits((old) => ({
-                          ...old,
-                          [id]: event.target.value as 'ask' | 'allow' | 'deny',
-                        }))
-                      }
-                    >
-                      {current && typeof current === 'object' && <option value="rules">По шаблонам</option>}
-                      {!current && <option value="inherit">По умолчанию</option>}
-                      <option value="ask">Спрашивать</option>
-                      <option value="allow">Разрешать</option>
-                      <option value="deny">Запрещать</option>
-                    </select>
-                  </label>
-                );
-              })}
-            </div>
-            <div className="settings-section-actions">
-              <button className="subtle-link" disabled={!client} onClick={() => setAdvanced(true)}>
-                Шаблоны и JSON
-                <ChevronRight size={15} />
-              </button>
-              <Button
-                variant="secondary"
-                disabled={!Object.keys(permissionEdits).length || !client}
-                onClick={() =>
-                  setPendingPermission({
-                    ...(typeof permission === 'string' ? { '*': permission } : permission),
-                    ...permissionEdits,
-                  })
-                }
-              >
-                Сохранить правила
-              </Button>
-            </div>
-          </section>
-          <section className="panel settings-section">
-            <div className="settings-section-title">
-              <AudioLines size={20} />
-              <div>
-                <h2>Голос → промпт</h2>
-                <p>Нативное распознавание речи устройства.</p>
+                <div>
+                  <h2>Разрешения OpenCode</h2>
+                  <p>Правила сохраняются в общих настройках OpenCode на компьютере.</p>
+                </div>
               </div>
-            </div>
-            <Toggle
-              checked={preferences.offlineSpeech}
-              onChange={(offlineSpeech) => void perform(() => setPreferences({ offlineSpeech }))}
-              label="Только на устройстве"
-              description="Аудио не отправляется в облачный распознаватель. Нужен установленный языковой пакет."
-            />
-            <label className="permission-rule">
-              <span>
-                Язык диктовки<code>speech locale</code>
-              </span>
-              <select
-                value={preferences.speechLocale}
-                onChange={(event) => void perform(() => setPreferences({ speechLocale: event.target.value }))}
-              >
-                <option value="ru-RU">Русский</option>
-                <option value="en-US">English (US)</option>
-                <option value="uk-UA">Українська</option>
-                <option value="de-DE">Deutsch</option>
-                <option value="es-ES">Español</option>
-                <option value="fr-FR">Français</option>
-                <option value="zh-CN">中文</option>
-              </select>
-            </label>
-            <p className="form-hint">
-              Если офлайн-распознавание недоступно, OCC сообщит об этом. Облачный режим включается только этим
-              переключателем.
-            </p>
-          </section>
+              <div className="permission-presets">
+                <button disabled={!client} onClick={() => setPendingPermission(permissionPreset('ask'))}>
+                  <ShieldCheck size={20} />
+                  <strong>Под контролем</strong>
+                  <span>Спрашивать перед действиями</span>
+                </button>
+                <button disabled={!client} onClick={() => setPendingPermission(permissionPreset('allow'))}>
+                  <Check size={20} />
+                  <strong>В потоке</strong>
+                  <span>Правки — да, терминал — спросить</span>
+                </button>
+                <button disabled={!client} onClick={() => setPendingPermission('allow')}>
+                  <Zap size={20} />
+                  <strong>Автопилот</strong>
+                  <span>Разрешать все действия</span>
+                </button>
+              </div>
+              <div className="permission-rules">
+                {tools.map(([id, label]) => {
+                  const current =
+                    permissionEdits[id] ?? (typeof permission === 'string' ? permission : permission?.[id]);
+                  return (
+                    <label className="permission-rule" key={id}>
+                      <span>
+                        {label}
+                        <code>{id}</code>
+                      </span>
+                      <select
+                        aria-label={label}
+                        disabled={!client}
+                        value={typeof current === 'string' ? current : current ? 'rules' : 'inherit'}
+                        onChange={(event) =>
+                          setPermissionEdits((old) => ({
+                            ...old,
+                            [id]: event.target.value as 'ask' | 'allow' | 'deny',
+                          }))
+                        }
+                      >
+                        {current && typeof current === 'object' && <option value="rules">По шаблонам</option>}
+                        {!current && <option value="inherit">По умолчанию</option>}
+                        <option value="ask">Спрашивать</option>
+                        <option value="allow">Разрешать</option>
+                        <option value="deny">Запрещать</option>
+                      </select>
+                    </label>
+                  );
+                })}
+              </div>
+              <div className="settings-section-actions">
+                <button className="subtle-link" disabled={!client} onClick={() => setAdvanced(true)}>
+                  Шаблоны и JSON
+                  <ChevronRight size={15} />
+                </button>
+                <Button
+                  variant="secondary"
+                  disabled={!Object.keys(permissionEdits).length || !client}
+                  onClick={() =>
+                    setPendingPermission({
+                      ...(typeof permission === 'string' ? { '*': permission } : permission),
+                      ...permissionEdits,
+                    })
+                  }
+                >
+                  Сохранить правила
+                </Button>
+              </div>
+            </section>
+          )}
+          {section === 'voice' && (
+            <section className="panel settings-section">
+              <div className="settings-section-title">
+                <AudioLines size={20} />
+                <div>
+                  <h2>Голос → промпт</h2>
+                  <p>Нативное распознавание речи устройства.</p>
+                </div>
+              </div>
+              <Toggle
+                checked={preferences.offlineSpeech}
+                onChange={(offlineSpeech) => void perform(() => setPreferences({ offlineSpeech }))}
+                label="Только на устройстве"
+                description="Аудио не отправляется в облачный распознаватель. Нужен установленный языковой пакет."
+              />
+              <label className="permission-rule">
+                <span>
+                  Язык диктовки<code>speech locale</code>
+                </span>
+                <select
+                  value={preferences.speechLocale}
+                  onChange={(event) =>
+                    void perform(() => setPreferences({ speechLocale: event.target.value }))
+                  }
+                >
+                  <option value="ru-RU">Русский</option>
+                  <option value="en-US">English (US)</option>
+                  <option value="uk-UA">Українська</option>
+                  <option value="de-DE">Deutsch</option>
+                  <option value="es-ES">Español</option>
+                  <option value="fr-FR">Français</option>
+                  <option value="zh-CN">中文</option>
+                </select>
+              </label>
+              <p className="form-hint">
+                Если офлайн-распознавание недоступно, OCC сообщит об этом. Облачный режим включается только
+                этим переключателем.
+              </p>
+            </section>
+          )}
         </div>
         <aside className="settings-aside">
-          <UpdateSettings />
-          <NotificationSettings />
-          <DiagnosticSettings />
-          <section className="panel settings-section">
-            <div className="settings-section-title">
-              <KeyRound size={20} />
-              <div>
-                <h2>Провайдеры</h2>
-                <p>Подключённые провайдеры</p>
+          {section === 'updates' && <UpdateSettings />}
+          {section === 'notifications' && <NotificationSettings />}
+          {section === 'diagnostics' && <DiagnosticSettings />}
+          {section === 'interface' && (
+            <section className="panel settings-section">
+              <div className="settings-section-title">
+                <Smartphone size={20} />
+                <div>
+                  <h2>Интерфейс</h2>
+                </div>
               </div>
-            </div>
-            <button className="settings-link-row" onClick={() => setScreen('models')}>
-              <span>
-                <strong>Модели и API-ключи</strong>
-                <small>Каталог, варианты, свой endpoint</small>
-              </span>
-              <ChevronRight size={18} />
-            </button>
-          </section>
-          <section className="panel settings-section">
-            <div className="settings-section-title">
-              <Smartphone size={20} />
-              <div>
-                <h2>Интерфейс</h2>
-              </div>
-            </div>
-            <Toggle
-              checked={preferences.haptics}
-              onChange={(haptics) => void perform(() => setPreferences({ haptics }))}
-              label="Тактильный отклик"
-              description="Короткий отклик на отправку и ответы"
-            />
-          </section>
-          <section className="about-card">
-            <div>
-              <ExternalLink href="https://github.com/HVHBIGNAME/OpenCodePocket">
-                <Github size={16} />
-                Исходники
-              </ExternalLink>
-            </div>
-          </section>
+              <Toggle
+                checked={preferences.haptics}
+                onChange={(haptics) => void perform(() => setPreferences({ haptics }))}
+                label="Тактильный отклик"
+                description="Короткий отклик на отправку и ответы"
+              />
+            </section>
+          )}
         </aside>
       </div>
       {pendingPermission !== undefined && (

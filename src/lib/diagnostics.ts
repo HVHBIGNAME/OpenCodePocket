@@ -180,7 +180,7 @@ export function installDiagnosticHandlers() {
     void flushDiagnostics();
   });
   setInterval(() => {
-    void flushDiagnostics();
+    if (!document.hidden) void flushDiagnostics();
   }, 60_000);
   void initializeDiagnostics();
 }

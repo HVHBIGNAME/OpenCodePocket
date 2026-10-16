@@ -67,6 +67,10 @@ public class PocketNativePlugin: CAPPlugin, CAPBridgedPlugin, UNUserNotification
             self?.pushCall = nil
         })
         observers.append(NotificationCenter.default.addObserver(forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main) { [weak self] _ in self?.stream?.resume() })
+        observers.append(NotificationCenter.default.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in
+            self?.stream?.pause()
+            self?.speech?.cancel()
+        })
         for name in [UIAccessibility.reduceTransparencyStatusDidChangeNotification, UIAccessibility.reduceMotionStatusDidChangeNotification, Notification.Name.NSProcessInfoPowerStateDidChange] {
             observers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
                 self?.notifyListeners("appearanceAccessibility", data: self?.appearanceState() ?? [:])
@@ -155,7 +159,8 @@ public class PocketNativePlugin: CAPPlugin, CAPBridgedPlugin, UNUserNotification
             }, onState: { [weak self] connected in
                 self?.notifyListeners("connection", data: ["state": connected ? "connected" : "reconnecting"])
             })
-            self.stream?.start()
+            if UIApplication.shared.applicationState == .background { self.stream?.pause() }
+            else { self.stream?.start() }
             call.resolve()
         }
     }
@@ -212,7 +217,7 @@ public class PocketNativePlugin: CAPPlugin, CAPBridgedPlugin, UNUserNotification
     }
 
     public func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification, withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
-        completionHandler([])
+        completionHandler(notification.request.content.userInfo["occTest"] as? Bool == true ? [.banner, .sound] : [])
     }
 
     public func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse, withCompletionHandler completionHandler: @escaping () -> Void) {

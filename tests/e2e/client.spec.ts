@@ -1,19 +1,22 @@
-import { test, expect, connect, type Page, type Locator } from './fixtures';
+import { test, expect, connect, settlePages, type Page, type Locator } from './fixtures';
 import { mkdir } from 'node:fs/promises';
 import { randomBytes } from 'node:crypto';
 import sharp from 'sharp';
 import type { MessageEntry, Session } from '../../src/types';
 
 async function tab(page: Page, name: string) {
-  for (let depth = 0; depth < 5 && (await page.locator('.chat-page').count()); depth++)
+  for (let depth = 0; depth < 5 && (await page.locator('.chat-page').count()); depth++) {
     await page
       .locator('.chat-heading')
       .getByRole('button', { name: /^(Назад|На уровень)/ })
       .click();
+    await settlePages(page);
+  }
   await page
     .getByRole('navigation', { name: 'Главная навигация' })
     .getByRole('button', { name, exact: true })
     .click();
+  await settlePages(page);
 }
 
 async function swipe(target: Locator, dx: number, dy: number, x = 0.5) {
@@ -303,8 +306,9 @@ test('keeps session rows and reading position stable across events and navigatio
   await expect(page.getByRole('button', { name: 'Обновить сессии' })).toBeEnabled();
   const order = await page.locator('.session-title').allTextContents();
   const target = page.locator('.session-row').last();
-  await target.scrollIntoViewIfNeeded();
-  const top = await page.evaluate(() => window.scrollY);
+  await target.evaluate((element) => element.scrollIntoView({ block: 'center' }));
+  const position = () => target.evaluate((element) => element.closest('[data-page-scroll]')!.scrollTop);
+  const top = await position();
   const sessions: Session[] = await (
     await page.request.get('http://127.0.0.1:4097/experimental/session')
   ).json();
@@ -317,11 +321,12 @@ test('keeps session rows and reading position stable across events and navigatio
   });
   await expect(page.locator('.session-row').filter({ hasText: changed.title })).toContainText('сейчас');
   expect(await page.locator('.session-title').allTextContents()).toEqual(order);
-  expect(Math.abs((await page.evaluate(() => window.scrollY)) - top)).toBeLessThan(4);
+  expect(Math.abs((await position()) - top)).toBeLessThan(4);
   await target.click();
   await page.getByRole('button', { name: 'Назад к сессиям' }).click();
   expect(await page.locator('.session-title').allTextContents()).toEqual(order);
-  await expect.poll(async () => Math.abs((await page.evaluate(() => window.scrollY)) - top)).toBeLessThan(4);
+  await settlePages(page);
+  await expect.poll(async () => Math.abs((await position()) - top)).toBeLessThan(4);
 });
 
 test('restores chat reading position after tabs and reopening a session', async ({ page }) => {
@@ -703,6 +708,7 @@ test('opens task sessions, reads agent messages and returns to the parent with i
   await expect(page.getByLabel('Промпт для OpenCode')).toHaveValue('');
   await page.screenshot({ path: testInfo.outputPath('agent-session.png') });
   await page.getByRole('button', { name: 'Назад к основной сессии' }).click();
+  await settlePages(page);
   await expect(page.getByLabel('Промпт для OpenCode')).toHaveValue('Черновик основной сессии');
   await page.request.post('http://127.0.0.1:4097/__test/event', {
     data: { type: 'session.status', properties: { sessionID: 'ses_child', status: { type: 'idle' } } },
@@ -745,6 +751,7 @@ test('configures and revokes a personal ntfy channel without claiming phone deli
   await connect(page);
   await tab(page, 'Настройки');
   const settings = page.getByRole('region', { name: 'Настройка уведомлений' });
+  await page.getByRole('button', { name: 'Уведомления', exact: true }).click();
   await expect(settings.getByRole('button', { name: 'Отправить тестовое уведомление' })).toBeDisabled();
   const toggle = settings.getByRole('switch', { name: /Доставка через ntfy/ });
   await toggle.click();
@@ -753,10 +760,14 @@ test('configures and revokes a personal ntfy channel without claiming phone deli
   await expect(settings.locator('.notification-topic code')).toHaveText(/^occ-[a-f0-9]{48}$/);
   await settings.screenshot({ path: testInfo.outputPath('notifications.png') });
   await page.route('**/occ/notifications/test', (route) =>
-    route.fulfill({ json: { dispatched: false, attempted: 1, delivered: 0, failed: 1 } }),
+    route.fulfill({
+      json: { dispatched: false, attempted: 1, delivered: 0, failed: 1, errors: ['ntfy HTTP 429'] },
+    }),
   );
   await settings.getByRole('button', { name: 'Отправить тестовое уведомление' }).click();
   await expect(settings.getByRole('status')).toContainText('Тест не отправлен');
+  await expect(settings.getByRole('status')).toContainText('ntfy HTTP 429');
+  await expect(settings.getByRole('button', { name: 'Отправить тестовое уведомление' })).toBeDisabled();
   await toggle.click();
   await expect(toggle).not.toBeChecked();
   await expect(settings.locator('.notification-topic')).toHaveCount(0);
@@ -830,6 +841,7 @@ test('changes the default model, global permissions, and provider credentials', 
   await page.getByRole('button', { name: 'Подключить', exact: true }).click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await tab(page, 'Настройки');
+  await page.getByRole('button', { name: 'Разрешения OpenCode', exact: true }).click();
   await page.getByRole('button', { name: /Автопилот/ }).click();
   await page.getByRole('button', { name: 'Применить', exact: true }).click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
@@ -853,6 +865,7 @@ test('mobile ergonomics: bottom sheets, agent and variant, keyboard space, reada
   await page.getByRole('button', { name: /Планировать/ }).click();
   await page.getByRole('button', { name: 'high', exact: true }).click();
   await page.getByRole('button', { name: 'Готово', exact: true }).click();
+  await expect(page.locator('dialog')).toHaveCount(0);
   const size = page.viewportSize()!;
   for (const width of [320, size.width]) {
     await page.setViewportSize({ width, height: 440 });
@@ -941,6 +954,7 @@ test('automatically queues a redacted failure and allows opting out', async ({ p
   await expect.poll(() => uploads.length).toBeGreaterThan(0);
   expect(uploads.join('')).not.toContain('PRIVATE_PROMPT_MUST_NOT_LEAVE_DEVICE');
   await tab(page, 'Настройки');
+  await page.getByRole('button', { name: 'Автоотчёты об ошибках', exact: true }).click();
   await page.getByRole('switch', { name: /Отправлять обезличенные отчёты/ }).uncheck();
   await expect(page.getByRole('button', { name: 'Проверить отправку' })).toBeDisabled();
   const count = uploads.length;
@@ -1078,6 +1092,7 @@ test('keeps input scale and chat width stable across keyboard-sized viewports an
     await expect(input).not.toBeFocused();
   }
   await tab(page, 'Настройки');
+  await page.getByRole('button', { name: 'Разрешения OpenCode', exact: true }).click();
   await page.setViewportSize({ width: 320, height: original.height });
   await expect(page.getByRole('combobox', { name: 'Чтение файлов', exact: true })).toBeVisible();
   const sizes = await page
@@ -1131,10 +1146,12 @@ test('keeps favorites stable and opens multiple nested agents only inside the pa
   await page.getByRole('button', { name: /Агенты · 3/ }).click();
   await expect(page.getByRole('dialog', { name: 'Агенты сессии' })).toContainText('Вложенный агент');
   await page.getByRole('button', { name: /Второй агент.*Завершён/ }).click();
-  await expect(page.locator('.chat-heading h1')).toHaveText('Второй агент');
+  await settlePages(page);
+  await expect(page.getByRole('heading', { name: 'Второй агент', exact: true })).toBeVisible();
   await page.getByRole('button', { name: /Агенты · 1/ }).click();
   await page.getByRole('button', { name: /Вложенный агент.*Завершён/ }).click();
-  await expect(page.locator('.chat-heading h1')).toHaveText('Вложенный агент');
+  await settlePages(page);
+  await expect(page.getByRole('heading', { name: 'Вложенный агент', exact: true })).toBeVisible();
   await tab(page, 'Сессии');
   await expect(row.getByRole('button', { name: 'Убрать из избранного' })).toBeVisible();
 });
@@ -1154,6 +1171,7 @@ test('groups model choices by provider and completes built-in and server slash c
   await expect(picker.getByRole('region', { name: 'Провайдер Anthropic', exact: true })).toBeVisible();
   await expect(picker.getByRole('region', { name: 'Провайдер OpenAI', exact: true })).toBeVisible();
   await picker.getByRole('button', { name: /Claude Sonnet/ }).click();
+  await expect(picker).toHaveCount(0);
   await input.fill('/com');
   await input.press('Enter');
   await expect(input).toHaveValue('/compact ');
@@ -1201,13 +1219,11 @@ test('sends text and attachments during generation without aborting the current 
   await page.getByRole('button', { name: 'Отправить промпт' }).click();
   await expect(page.getByLabel('Промпт для OpenCode')).toHaveValue('');
   await busy();
-  await page
-    .locator('input[type="file"]')
-    .setInputFiles({
-      name: 'additional.pdf',
-      mimeType: 'application/pdf',
-      buffer: Buffer.from('%PDF-1.4\n'),
-    });
+  await page.locator('input[type="file"]').setInputFiles({
+    name: 'additional.pdf',
+    mimeType: 'application/pdf',
+    buffer: Buffer.from('%PDF-1.4\n'),
+  });
   await expect(page.getByRole('button', { name: 'Отправить промпт' })).toBeEnabled();
   await page.getByRole('button', { name: 'Отправить промпт' }).click();
   await expect(page.locator('.composer-attachments')).toHaveCount(0);
@@ -1225,7 +1241,9 @@ test('mobile release screenshots and absence of desktop navigation', async ({ pa
   await page.screenshot({ path: `artifacts/screenshots/${info.project.name}-welcome.png` });
   await connect(page);
   await page.evaluate(() => document.fonts.ready);
-  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.locator('.main-content').evaluate((element) => {
+    element.scrollTop = 0;
+  });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
   await expect(page.locator('aside.sidebar')).toHaveCount(0);
   await page.screenshot({ path: `artifacts/screenshots/${info.project.name}-sessions.png` });
@@ -1254,6 +1272,7 @@ test('mobile release screenshots and absence of desktop navigation', async ({ pa
     );
     await page.screenshot({ path: `artifacts/screenshots/${info.project.name}-${suffix}.png` });
   }
+  await page.getByRole('button', { name: 'Оформление', exact: true }).click();
   await page.getByRole('button', { name: 'Тема: Mercury', exact: true }).click();
   await page.screenshot({ path: `artifacts/screenshots/${info.project.name}-themes.png` });
   await page.getByLabel('Поиск тем').fill('Catppuccin');
@@ -1265,6 +1284,7 @@ test('mobile release screenshots and absence of desktop navigation', async ({ pa
   await tab(page, 'Сессии');
   await page.screenshot({ path: `artifacts/screenshots/${info.project.name}-catppuccin.png` });
   await tab(page, 'Настройки');
+  await page.getByRole('button', { name: 'Оформление', exact: true }).click();
   await page.getByRole('button', { name: 'Светлая', exact: true }).click();
   await page.getByRole('button', { name: 'Тема: Catppuccin', exact: true }).click();
   await page.getByLabel('Поиск тем').fill('GitHub');

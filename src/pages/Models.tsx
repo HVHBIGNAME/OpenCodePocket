@@ -9,7 +9,6 @@ import {
   Search,
   SlidersHorizontal,
   Sparkles,
-  Terminal,
 } from 'lucide-react';
 import { usePocket } from '../store/PocketProvider';
 import { number } from '../lib/format';
@@ -110,46 +109,51 @@ export function Models() {
               <span className="model-symbol">
                 <Cpu size={22} />
               </span>
-              <span className="eyebrow">{item.providerName}</span>
+              <div className="model-card-name">
+                <h3>{item.name}</h3>
+                <span>{item.providerName}</span>
+              </div>
               {model?.modelID === item.id && model.providerID === item.providerID && (
                 <Check size={17} className="accent" />
               )}
             </div>
-            <h3>{item.name}</h3>
-            <p className="mono model-id">{item.id}</p>
-            <div className="model-capabilities">
-              <span>
-                <Terminal size={12} />
-                CODE
-              </span>
-              {(item.reasoning || item.capabilities?.reasoning) && (
+            <details className="model-specs">
+              <summary>
+                Возможности и лимиты
+                <ChevronDown size={16} />
+              </summary>
+              <p className="mono model-id">{item.id}</p>
+              <div className="model-capabilities">
+                {(item.reasoning || item.capabilities?.reasoning) && (
+                  <span>
+                    <Sparkles size={12} />
+                    Рассуждения
+                  </span>
+                )}
+                {(item.attachment || item.capabilities?.attachment) && <span>Вложения</span>}
+              </div>
+              <div className="model-limits">
                 <span>
-                  <Sparkles size={12} />
-                  REASONING
+                  Контекст<strong>{item.limit ? number(item.limit.context) : '—'}</strong>
                 </span>
-              )}
-              {(item.attachment || item.capabilities?.attachment) && <span>VISION</span>}
-            </div>
-            <div className="model-limits">
-              <span>
-                Контекст<strong>{item.limit ? number(item.limit.context) : '—'}</strong>
-              </span>
-              <span>
-                Ответ<strong>{item.limit ? number(item.limit.output) : '—'}</strong>
-              </span>
-              <span>
-                Вход / 1M<strong>{item.cost ? `$${item.cost.input}` : '—'}</strong>
-              </span>
-            </div>
+                <span>
+                  Ответ<strong>{item.limit ? number(item.limit.output) : '—'}</strong>
+                </span>
+                <span>
+                  Вход / 1M<strong>{item.cost ? `$${item.cost.input}` : '—'}</strong>
+                </span>
+              </div>
+            </details>
             <div className="model-card-actions">
               <Button
                 variant="secondary"
+                aria-pressed={model?.modelID === item.id && model.providerID === item.providerID}
                 onClick={() => {
                   setModel({ providerID: item.providerID, modelID: item.id });
                   if (session) setScreen('chat');
                 }}
               >
-                Выбрать
+                {model?.modelID === item.id && model.providerID === item.providerID ? 'Выбрана' : 'Выбрать'}
                 <ArrowRight size={15} />
               </Button>
               <button

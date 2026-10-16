@@ -34,3 +34,7 @@ export async function connect(page: Page) {
   await expect(page.getByRole('button', { name: 'Подключение: DESKTOP-1337' })).toBeVisible();
   await expect(page.getByText('Панель управления — новая архитектура', { exact: true })).toBeVisible();
 }
+
+export async function settlePages(page: Page) {
+  await expect(page.locator('[data-page-transition]')).toHaveCount(0);
+}

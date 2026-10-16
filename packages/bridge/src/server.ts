@@ -201,6 +201,11 @@ export async function createBridge(options: BridgeOptions) {
         online: relay.online,
         push: {
           apns: Boolean(options.push?.apns),
+          apnsEnvironment: options.push?.apns
+            ? options.push.apns.production
+              ? 'production'
+              : 'development'
+            : undefined,
           ntfy: Boolean(options.push?.ntfy || device.ntfyTopic),
           registered: Boolean(device.pushToken),
           ntfyTopic: device.ntfyTopic,

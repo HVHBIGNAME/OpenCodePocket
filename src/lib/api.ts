@@ -280,7 +280,12 @@ export class OpenCodeClient {
     let wakeRetry: (() => void) | undefined;
     let lastActivity = 0;
     const wake = () => {
-      if (signal.aborted || document.hidden) return;
+      if (signal.aborted) return;
+      if (document.hidden) {
+        activeAttempt?.abort();
+        wakeRetry?.();
+        return;
+      }
       wakeRetry?.();
       if (Date.now() - lastActivity > 20_000) activeAttempt?.abort();
     };
@@ -289,6 +294,19 @@ export class OpenCodeClient {
     void (async () => {
       let failures = 0;
       while (!signal.aborted) {
+        if (document.hidden) {
+          await new Promise<void>((resolve) => {
+            const done = () => {
+              signal.removeEventListener('abort', done);
+              resolve();
+            };
+            wakeRetry = done;
+            signal.addEventListener('abort', done, { once: true });
+          });
+          wakeRetry = undefined;
+          if (signal.aborted) break;
+          if (document.hidden) continue;
+        }
         const attempt = new AbortController();
         activeAttempt = attempt;
         const abort = () => attempt.abort();
@@ -346,7 +364,7 @@ export class OpenCodeClient {
           attempt.abort();
           if (activeAttempt === attempt) activeAttempt = undefined;
         }
-        if (!signal.aborted) {
+        if (!signal.aborted && !document.hidden) {
           onState('reconnecting');
           await new Promise<void>((resolve) => {
             const done = () => {

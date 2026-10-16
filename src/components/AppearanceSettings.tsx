@@ -72,7 +72,7 @@ export function AppearanceSettings() {
         <Palette size={20} />
         <div>
           <h2>Оформление</h2>
-          <p>{themes.length} тем OpenCode .</p>
+          <p>{themes.length} тем · светлый и тёмный режим</p>
         </div>
       </div>
       <fieldset className="segmented appearance-modes" aria-label="Цветовой режим">

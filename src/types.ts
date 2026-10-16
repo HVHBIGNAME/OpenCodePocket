@@ -53,6 +53,7 @@ export type BridgeInfo = {
   deviceID: string;
   push: {
     apns: boolean;
+    apnsEnvironment?: 'development' | 'production';
     ntfy: boolean;
     registered?: boolean;
     ntfyTopic?: string;

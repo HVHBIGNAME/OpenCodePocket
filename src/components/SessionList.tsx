@@ -1,9 +1,9 @@
-import { useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { usePageActive, usePageScroll } from './PageDeck';
 import {
   ArrowRight,
   Check,
   Folder,
-  GitBranch,
   MessageSquare,
   Plus,
   RefreshCw,
@@ -11,6 +11,7 @@ import {
   SlidersHorizontal,
   Star,
   Terminal,
+  X,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { usePocket } from '../store/PocketProvider';
@@ -25,52 +26,67 @@ import {
   stableSessionOrder,
 } from '../lib/session-search';
 
-export function SessionRow({ session }: { session: Session }) {
+export function SessionRow({
+  session,
+  activity: inheritedActivity,
+}: {
+  session: Session;
+  activity?: ReturnType<typeof sessionActivity>;
+}) {
   const { data, openSession, favoriteState, toggleFavorite, perform } = usePocket();
-  const activity = sessionActivity(data);
+  const activity = inheritedActivity ?? sessionActivity(data);
   const waiting = activity.waiting.has(session.id);
   const status = data.statuses[session.id]?.type;
   const busy = activity.busy.has(session.id);
   const favorite = favoriteState.ids.has(session.id);
+  const projectName = folderName(session.directory);
+  const tone = [...session.directory].reduce((value, letter) => value + letter.charCodeAt(0), 0) % 4;
+  const stateLabel = session.time.archived
+    ? 'В архиве'
+    : waiting
+      ? 'Ждёт ответа'
+      : status === 'retry'
+        ? 'Повтор запроса'
+        : busy
+          ? 'Работает'
+          : '';
   return (
     <div className={`session-row ${waiting ? 'session-awaiting' : ''}`}>
       <button className="session-open" onClick={() => openSession(session)}>
-        <span className={clsx('session-icon', busy && 'session-icon-live', waiting && 'session-icon-wait')}>
-          {waiting ? <MessageSquare size={20} /> : busy ? <Terminal size={20} /> : <GitBranch size={20} />}
+        <span
+          aria-hidden
+          className={clsx(
+            'session-icon',
+            `session-tone-${tone}`,
+            busy && 'session-icon-live',
+            waiting && 'session-icon-wait',
+          )}
+        >
+          {projectName.slice(0, 2).toLocaleUpperCase()}
+          {(waiting || busy) && (
+            <i>{waiting ? <MessageSquare size={11} /> : <span className="live-dot" />}</i>
+          )}
         </span>
         <span className="session-main">
-          <span className="session-title" id={`session-title-${session.id}`}>
-            {session.title || 'Новая сессия'}
+          <span className="session-title-line">
+            <span className="session-title" id={`session-title-${session.id}`}>
+              {session.title || 'Новая сессия'}
+            </span>
+            <time className="session-time" dateTime={new Date(session.time.updated).toISOString()}>
+              {timeAgo(session.time.updated)}
+            </time>
           </span>
           <span className="session-subtitle">
-            <span>{folderName(session.directory)}</span>
-            <span>·</span>
-            <span>{timeAgo(session.time.updated)}</span>
+            <span>{projectName}</span>
+            {stateLabel && (
+              <>
+                <span aria-hidden>·</span>
+                <span className={waiting ? 'session-wait-text' : busy ? 'session-busy-text' : ''}>
+                  {stateLabel}
+                </span>
+              </>
+            )}
           </span>
-          {(waiting || busy || Boolean(session.time.archived)) && (
-            <span className="session-meta">
-              <span
-                className={`status-pill ${waiting ? 'status-wait' : busy ? 'status-live' : 'status-idle'}`}
-              >
-                {waiting ? (
-                  <MessageSquare size={12} />
-                ) : busy ? (
-                  <span className="live-dot" />
-                ) : (
-                  <Check size={12} />
-                )}{' '}
-                {session.time.archived
-                  ? 'В архиве'
-                  : waiting
-                    ? 'Ждёт тебя'
-                    : status === 'retry'
-                      ? 'Повтор запроса'
-                      : busy
-                        ? 'Работает'
-                        : 'Готово'}
-              </span>
-            </span>
-          )}
         </span>
       </button>
       <button
@@ -80,7 +96,7 @@ export function SessionRow({ session }: { session: Session }) {
         aria-pressed={favorite}
         onClick={() => void perform(() => toggleFavorite(session))}
       >
-        <Star size={19} fill={favorite ? 'currentColor' : 'none'} />
+        <Star size={17} fill={favorite ? 'currentColor' : 'none'} />
       </button>
     </div>
   );
@@ -183,6 +199,8 @@ export function NewSession({ onClose }: { onClose: () => void }) {
 }
 
 export function SessionsPage() {
+  const scroll = usePageScroll();
+  const active = usePageActive();
   const {
     data,
     refresh,
@@ -193,6 +211,7 @@ export function SessionsPage() {
     setSessionFilters,
     sessionListView,
     favoriteState,
+    setConnectOpen,
   } = usePocket();
   const { search, filter, project, favoritesOnly } = sessionFilters;
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -201,6 +220,10 @@ export function SessionsPage() {
   const [pull, setPull] = useState(0);
   const pullStart = useRef<number | undefined>(undefined);
   const { sessions: allSessions, statuses, questions, permissions } = data;
+  const activity = useMemo(
+    () => sessionActivity({ sessions: allSessions, statuses, questions, permissions }),
+    [allSessions, statuses, questions, permissions],
+  );
   const matches = useMemo(
     () =>
       filterSessions(
@@ -217,19 +240,21 @@ export function SessionsPage() {
   const matchingIDs = new Set(matches.map((item) => item.id));
   const sessions = ordered.filter((item) => matchingIDs.has(item.id));
   useLayoutEffect(() => {
-    sessionListView.current.order = ordered.map((item) => item.id);
-  }, [ordered, sessionListView]);
-  useLayoutEffect(() => {
-    window.scrollTo(0, sessionListView.current.scroll);
+    if (active) sessionListView.current.order = ordered.map((item) => item.id);
+  }, [ordered, sessionListView, active]);
+  useEffect(() => {
+    const element = scroll?.current;
+    if (!element) return;
+    element.scrollTop = sessionListView.current.scroll;
     const save = () => {
-      sessionListView.current.scroll = window.scrollY;
+      if (active) sessionListView.current.scroll = element.scrollTop;
     };
-    window.addEventListener('scroll', save, { passive: true });
-    return () => window.removeEventListener('scroll', save);
-  }, [sessionListView]);
+    element.addEventListener('scroll', save, { passive: true });
+    return () => element.removeEventListener('scroll', save);
+  }, [sessionListView, scroll, active]);
   useLayoutEffect(() => {
-    sessionListView.current.visible = visibleCount;
-  }, [visibleCount, sessionListView]);
+    if (active) sessionListView.current.visible = visibleCount;
+  }, [visibleCount, sessionListView, active]);
   const folders = useMemo(
     () => [...new Set(data.sessions.filter((item) => !item.parentID).map((item) => item.directory))].sort(),
     [data.sessions],
@@ -245,7 +270,9 @@ export function SessionsPage() {
         const control =
           event.target instanceof Element && event.target.closest('input, button, select, label');
         pullStart.current =
-          !control && !refreshing && window.scrollY <= 0 ? event.touches[0]?.clientY : undefined;
+          !control && !refreshing && (scroll?.current?.scrollTop ?? 0) <= 0
+            ? event.touches[0]?.clientY
+            : undefined;
       }}
       onTouchMove={(event) => {
         if (pullStart.current !== undefined)
@@ -266,7 +293,6 @@ export function SessionsPage() {
           <h1>
             Сессии<span className="heading-count">{sessions.length}</span>
           </h1>
-          {status !== 'live' && <p>Восстановление соединения…</p>}
         </div>
         <IconButton
           label="Обновить сессии"
@@ -276,6 +302,21 @@ export function SessionsPage() {
           <RefreshCw size={21} />
         </IconButton>
       </div>
+      {status !== 'live' && (
+        <div className="connection-banner" role="status">
+          <span>
+            {status === 'offline' ? 'Нет связи с компьютером' : 'Восстанавливаем соединение…'}
+            <small>Сохранённые сессии доступны для просмотра</small>
+          </span>
+          <Button
+            variant="ghost"
+            onClick={() => (status === 'offline' ? setConnectOpen(true) : void perform(() => refresh()))}
+            busy={refreshing}
+          >
+            {status === 'offline' ? 'Подключиться' : 'Повторить'}
+          </Button>
+        </div>
+      )}
       {pull > 25 && (
         <div className="pull-refresh">
           {pull > 65 ? 'Отпустите для обновления' : 'Потяните для обновления'}
@@ -319,6 +360,27 @@ export function SessionsPage() {
           <SlidersHorizontal size={16} /> Фильтры{filter !== 'all' || project ? ' ·' : ''}
         </button>
       </div>
+      {(filter !== 'all' || project) && (
+        <div className="active-filters">
+          <span>
+            {[
+              project && folderName(project),
+              filter === 'busy'
+                ? 'В работе'
+                : filter === 'waiting'
+                  ? 'Ждут ответа'
+                  : filter === 'archived'
+                    ? 'Архив'
+                    : '',
+            ]
+              .filter(Boolean)
+              .join(' · ')}
+          </span>
+          <IconButton label="Сбросить фильтры" onClick={() => updateFilters({ filter: 'all', project: '' })}>
+            <X size={16} />
+          </IconButton>
+        </div>
+      )}
       {filtersOpen && (
         <Modal title="Фильтры сессий" onClose={() => setFiltersOpen(false)}>
           <div className="segmented session-filters">
@@ -359,7 +421,9 @@ export function SessionsPage() {
       )}
       <section className="session-feed" aria-label="Список сессий">
         {sessions.length ? (
-          sessions.slice(0, visibleCount).map((session) => <SessionRow key={session.id} session={session} />)
+          sessions
+            .slice(0, visibleCount)
+            .map((session) => <SessionRow key={session.id} session={session} activity={activity} />)
         ) : (
           <EmptyState
             icon={<Terminal size={29} />}
@@ -404,7 +468,7 @@ export function SessionsPage() {
       )}
       <button className="new-session-fab" aria-label="Новая сессия" onClick={() => setNewOpen(true)}>
         <Plus size={22} />
-        <span>Новая</span>
+        <span>Новая сессия</span>
       </button>
       {newOpen && <NewSession onClose={() => setNewOpen(false)} />}
     </div>

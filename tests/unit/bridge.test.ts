@@ -77,7 +77,8 @@ describe('authenticated bridge', () => {
     expect(reopened.authenticate(credentials.token)?.ntfyTopic).toBe(first.topic);
     const listing = await (await fetch(`${bridge.localUrl}/occ/devices`, { headers })).text();
     expect(listing).not.toContain(first.topic);
-    await fetch(endpoint, { method: 'POST', headers, body: '{"enabled":false}' });
+    const disabled = await fetch(endpoint, { method: 'POST', headers, body: '{"enabled":false}' });
+    expect(disabled.status).toBe(200);
     const result = await (
       await fetch(`${bridge.localUrl}/occ/notifications/test`, { method: 'POST', headers })
     ).json();

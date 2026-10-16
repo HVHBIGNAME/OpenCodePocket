@@ -27,6 +27,7 @@ test('announces newer releases, keeps dismissal across reloads, and recovers aft
   await expect(page.locator('.update-notice')).toHaveCount(0);
   expect(requests).toBe(1);
   await page.getByRole('navigation').getByRole('button', { name: 'Настройки' }).click();
+  await page.getByRole('button', { name: 'Обновления', exact: true }).click();
   const settings = page.getByRole('region', { name: 'Обновления приложения' });
   await expect(settings).toContainText('Вышла новая версия 99.0.0');
   await page.route(releaseAPI, (route) => route.fulfill({ status: 429, json: {} }), { times: 1 });

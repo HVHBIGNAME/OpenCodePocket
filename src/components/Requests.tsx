@@ -6,11 +6,19 @@ import type { PendingPermission, PendingQuestion } from '../types';
 import { Button, KeyboardDismiss } from './ui';
 
 export function QuestionCard({ request }: { request: PendingQuestion }) {
-  const { client, perform, setData, notify, haptic } = usePocket();
-  const [selected, setSelected] = useState<string[][]>(request.questions.map(() => []));
-  const [custom, setCustom] = useState<string[]>(request.questions.map(() => ''));
+  const { client, perform, setData, notify, haptic, questionDrafts } = usePocket();
+  const signature = JSON.stringify(request.questions);
+  const saved = questionDrafts.current.get(request.id);
+  const draft = saved?.signature === signature ? saved : undefined;
+  const [selected, setSelected] = useState<string[][]>(
+    () => draft?.selected ?? request.questions.map(() => []),
+  );
+  const [custom, setCustom] = useState<string[]>(() => draft?.custom ?? request.questions.map(() => ''));
   const [busy, setBusy] = useState(false);
-  const [step, setStep] = useState(0);
+  const [step, setStep] = useState(draft?.step ?? 0);
+  useLayoutEffect(() => {
+    questionDrafts.current.set(request.id, { selected, custom, step, signature });
+  }, [questionDrafts, request.id, selected, custom, step, signature]);
   const body = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     if (body.current) body.current.scrollTop = 0;
@@ -19,11 +27,13 @@ export function QuestionCard({ request }: { request: PendingQuestion }) {
     const text = custom[index]?.trim();
     return text ? (question.multiple ? [...(selected[index] ?? []), text] : [text]) : (selected[index] ?? []);
   });
-  const clear = () =>
+  const clear = () => {
+    questionDrafts.current.delete(request.id);
     setData((previous) => ({
       ...previous,
       questions: previous.questions.filter((item) => item.id !== request.id),
     }));
+  };
   async function reply(reject = false) {
     if (!client) return;
     setBusy(true);
@@ -62,7 +72,6 @@ export function QuestionCard({ request }: { request: PendingQuestion }) {
               : 'Чтобы продолжить работу'}
           </small>
         </span>
-        <span className="request-live">ОЖИДАНИЕ</span>
       </div>
       <div className="request-body" ref={body}>
         {request.questions.map((question, index) =>
@@ -182,7 +191,6 @@ export function PermissionCard({ request }: { request: PendingPermission }) {
           <strong>Разрешить действие?</strong>
           <small>Инструмент: {request.permission}</small>
         </span>
-        <span className="request-live">ДОСТУП</span>
       </div>
       <div className="request-body">
         <div className="permission-patterns">

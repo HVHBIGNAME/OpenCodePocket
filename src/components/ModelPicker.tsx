@@ -9,15 +9,17 @@ import { groupModels } from '../lib/model-groups';
 export function ModelPicker({
   onClose,
   onSelect,
+  embedded = false,
 }: {
   onClose: () => void;
   onSelect?: (choice: ModelChoice) => void;
+  embedded?: boolean;
 }) {
   const { connectedModels, model, setModel } = usePocket();
   const [query, setQuery] = useState('');
   const groups = groupModels(connectedModels, query);
-  return (
-    <Modal title="Выбрать модель" subtitle="Модели, подключённые к твоему OpenCode." onClose={onClose}>
+  const content = (
+    <>
       <label className="search-field">
         <Search size={17} />
         <input
@@ -68,6 +70,13 @@ export function ModelPicker({
           Добавьте провайдера на странице «Модели» или измените поиск.
         </EmptyState>
       )}
+    </>
+  );
+  return embedded ? (
+    content
+  ) : (
+    <Modal title="Выбрать модель" subtitle="Модели, подключённые к твоему OpenCode." onClose={onClose}>
+      {content}
     </Modal>
   );
 }
