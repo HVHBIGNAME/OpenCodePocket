@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ArrowRight, Check, ChevronRight, Laptop, Plus, QrCode, Trash2 } from 'lucide-react';
+import { ArrowRight, Check, ChevronRight, Laptop, Pencil, Plus, QrCode, Trash2 } from 'lucide-react';
 import { APP_VERSION, normalizeServerUrl, parsePairing } from '../../shared/protocol';
 import { usePocket } from '../store/PocketProvider';
 import { errorMessage, pairDevice } from '../lib/api';
@@ -7,6 +7,7 @@ import { platform } from '../lib/native';
 import { captureDiagnostic } from '../lib/diagnostics';
 import { connectionRoute } from '../lib/connection-route';
 import { Button, CopyButton, ExternalLink, IconButton, Modal } from './ui';
+import { ConnectionEditor } from './ConnectionEditor';
 
 const installCommand = `npx --yes --package=https://github.com/HVHBIGNAME/OpenCodePocket/releases/download/v${APP_VERSION}/hvhbigname-occ-bridge-${APP_VERSION}.tgz occ-pocket install`;
 
@@ -14,6 +15,7 @@ export function ConnectModal() {
   const {
     setConnectOpen,
     connect,
+    updateConnection,
     connections,
     client,
     perform,
@@ -37,9 +39,12 @@ export function ConnectModal() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [removeID, setRemoveID] = useState<string>();
+  const [editingID, setEditingID] = useState<string>();
+  const editing = connections.find((connection) => connection.id === editingID);
   const scanStarted = useRef(false);
   useEffect(() => {
     if (pairingInput) {
+      setEditingID(undefined);
       setInput(pairingInput);
       setAdding(true);
       setManual(true);
@@ -102,8 +107,21 @@ export function ConnectModal() {
     }
   }
   return (
-    <Modal title={adding ? 'Подключить компьютер' : 'Подключения'} onClose={() => setConnectOpen(false)}>
-      {!adding ? (
+    <Modal
+      title={editing ? 'Изменить компьютер' : adding ? 'Подключить компьютер' : 'Подключения'}
+      onClose={() => setConnectOpen(false)}
+    >
+      {editing ? (
+        <ConnectionEditor
+          key={editing.id}
+          connection={editing}
+          onSave={async (changes) => {
+            await updateConnection(editing.id, changes);
+            setEditingID(undefined);
+          }}
+          onCancel={() => setEditingID(undefined)}
+        />
+      ) : !adding ? (
         <div className="form-stack">
           <div className="saved-connections">
             {connections.map((connection) => (
@@ -122,12 +140,30 @@ export function ConnectModal() {
                   </small>
                 </button>
                 {client?.connection.id === connection.id && <Check size={19} className="accent" />}
+                <IconButton
+                  label={`Изменить ${connection.name}`}
+                  disabled={busy}
+                  onClick={() => {
+                    setRemoveID(undefined);
+                    setEditingID(connection.id);
+                  }}
+                >
+                  <Pencil size={19} />
+                </IconButton>
                 {removeID === connection.id ? (
-                  <Button variant="danger" onClick={() => void perform(() => forget(connection.id))}>
+                  <Button
+                    variant="danger"
+                    disabled={busy}
+                    onClick={() => void perform(() => forget(connection.id))}
+                  >
                     Забыть?
                   </Button>
                 ) : (
-                  <IconButton label={`Забыть ${connection.name}`} onClick={() => setRemoveID(connection.id)}>
+                  <IconButton
+                    label={`Забыть ${connection.name}`}
+                    disabled={busy}
+                    onClick={() => setRemoveID(connection.id)}
+                  >
                     <Trash2 size={19} />
                   </IconButton>
                 )}

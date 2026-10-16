@@ -34,18 +34,18 @@
 
 ## Установка
 
-**Android:** [скачать подписанный APK](https://github.com/HVHBIGNAME/OpenCodePocket/releases/download/v1.0.8/OpenCodePocket-1.0.8-android.apk). APK подписан постоянным ключом проекта. Android 8+.
+**Android:** [скачать подписанный APK](https://github.com/HVHBIGNAME/OpenCodePocket/releases/download/v1.0.9/OpenCodePocket-1.0.9-android.apk). APK подписан постоянным ключом проекта. Android 8+.
 
-**iOS:** [скачать IPA](https://github.com/HVHBIGNAME/OpenCodePocket/releases/download/v1.0.8/OpenCodePocket-1.0.8-ios-unsigned.ipa). Это скомпилированный arm64 IPA для iOS 15+, **без Apple-подписи**. Для установки нужна самостоятельная подпись через Sideloadly/AltStore или свою Apple Developer-команду. Фоновый APNs требует подходящих entitlements и provisioning profile. [Подробнее](docs/build.md#ios).
+**iOS:** [скачать IPA](https://github.com/HVHBIGNAME/OpenCodePocket/releases/download/v1.0.9/OpenCodePocket-1.0.9-ios-unsigned.ipa). Это скомпилированный arm64 IPA для iOS 15+, **без Apple-подписи**. Для установки нужна самостоятельная подпись через Sideloadly/AltStore или свою Apple Developer-команду. Фоновый APNs требует подходящих entitlements и provisioning profile. [Подробнее](docs/build.md#ios).
 
 ### Компьютер → телефон
 
-**Windows:** [скачай `Install-Pocket.cmd`](https://github.com/HVHBIGNAME/OpenCodePocket/releases/download/v1.0.8/Install-Pocket.cmd) и запусти двойным щелчком. Установщик сам скачает Node.js, если его нет, и `cloudflared`, проверит контрольные суммы и подключит плагин.
+**Windows:** [скачай `Install-Pocket.cmd`](https://github.com/HVHBIGNAME/OpenCodePocket/releases/download/v1.0.9/Install-Pocket.cmd) и запусти двойным щелчком. Установщик сам скачает Node.js, если его нет, и `cloudflared`, проверит контрольные суммы и подключит плагин.
 
 **macOS / Linux:**
 
 ```sh
-curl -fsSL https://github.com/HVHBIGNAME/OpenCodePocket/releases/download/v1.0.8/install-pocket.sh | sh
+curl -fsSL https://github.com/HVHBIGNAME/OpenCodePocket/releases/download/v1.0.9/install-pocket.sh | sh
 ```
 
 1. После установки плагина **перезапусти OpenCode**. HTTP-порт настраивается автоматически, существующий порт сохраняется.
@@ -57,7 +57,7 @@ curl -fsSL https://github.com/HVHBIGNAME/OpenCodePocket/releases/download/v1.0.8
 Если Node.js уже установлен, доступна одна команда:
 
 ```sh
-npx --yes --package=https://github.com/HVHBIGNAME/OpenCodePocket/releases/download/v1.0.8/hvhbigname-occ-bridge-1.0.8.tgz occ-pocket install
+npx --yes --package=https://github.com/HVHBIGNAME/OpenCodePocket/releases/download/v1.0.9/hvhbigname-occ-bridge-1.0.9.tgz occ-pocket install
 ```
 
 Если OpenCode уже слушает порт, можно подключить мост без перезапуска:
@@ -71,6 +71,12 @@ occ-pocket start --upstream http://127.0.0.1:4096 --tunnel
 Свой туннель: `--url https://your-tunnel.example` вместо `--tunnel`. Локальная сеть/VPN: `--lan`. [Все сценарии →](docs/connect.md)
 
 ## Интерфейс
+
+### В версии 1.0.9
+
+- Редактирование сохранённого ПК: название, IP/домен, порт и путь. Нажми на название ПК в верхней панели, затем на карандаш. Сохраняются сопряжение и данные доступа; активный ПК переподключается, другой сохранённый ПК не меняет текущее подключение. Можно сохранить адрес недоступного сервера.
+- Исправлен скачок страницы при завершении переходов между экранами и вкладками чата: конечное положение анимации сохраняется до переключения DOM.
+- После переподключения список сессий загружается корректно; черновик сохраняется при смене адреса того же ПК. Исправление фокуса из 1.0.8 включено.
 
 ### В версии 1.0.8
 

@@ -1657,6 +1657,7 @@
     color: var(--text-strong);
     font-size: 13px;
     display: block;
+    overflow-wrap: anywhere;
   }
   .saved-connection small {
     display: block;

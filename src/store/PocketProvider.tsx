@@ -11,7 +11,7 @@ import {
 } from 'react';
 import { App as NativeApp } from '@capacitor/app';
 import { Haptics, ImpactStyle } from '@capacitor/haptics';
-import { type ServerEvent } from '../../shared/protocol';
+import { normalizeServerUrl, type ServerEvent } from '../../shared/protocol';
 import { ApiError, errorMessage, OpenCodeClient } from '../lib/api';
 import { isNative, platform, PocketNative, vaultRead, vaultWrite } from '../lib/native';
 import { applyEvent, emptyData, type LiveData } from './reducer';
@@ -345,7 +345,9 @@ function usePocketState() {
             if (next === clientRef.current) setVersion(value.version);
           })
           .catch((error: unknown) => captureDiagnostic(error, { kind: 'request', operation: 'connect' }));
-      setData(emptyData());
+      const cleared = emptyData();
+      dataRef.current = cleared;
+      setData(cleared);
       setBridgeInfo(undefined);
       setSessionID(undefined);
       setScreen('sessions');
@@ -357,6 +359,23 @@ function usePocketState() {
       if (next === clientRef.current) setConnectOpen(false);
     },
     [refresh],
+  );
+
+  const updateConnection = useCallback(
+    async (id: string, changes: Pick<Connection, 'name' | 'url'>) => {
+      const previous = savedRef.current.find((item) => item.id === id);
+      if (!previous) throw new Error('Это подключение уже удалено');
+      const name = changes.name.trim();
+      if (!name || name.length > 100) throw new Error('Название должно содержать от 1 до 100 символов');
+      const connection = { ...previous, name, url: normalizeServerUrl(changes.url) };
+      const saved = savedRef.current.map((item) => (item.id === id ? connection : item));
+      await vaultWrite('occ.connections', saved);
+      savedRef.current = saved;
+      setConnections(saved);
+      if (clientRef.current?.connection.id === id) await connect(connection, false);
+      notify('Подключение сохранено');
+    },
+    [connect, notify],
   );
 
   useEffect(() => {
@@ -883,6 +902,7 @@ function usePocketState() {
     refresh,
     refreshing,
     connect,
+    updateConnection,
     connectOpen,
     setConnectOpen,
     connectIntent,

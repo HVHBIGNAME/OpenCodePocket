@@ -28,6 +28,17 @@ export function PageSlider(props: Props) {
     latest.current = props;
     state.current = frame;
   });
+  useLayoutEffect(() => {
+    if (frame.preview !== undefined || frame.direction !== 0) return;
+    // Rebase the track only after React has moved the selected panel to its resting position.
+    distance.current = 0;
+    track.current?.style.setProperty('transform', 'translate3d(0px,0,0)');
+    props.indicator.current?.style.setProperty(
+      'transform',
+      `translateX(${Math.max(0, Math.min(props.count - 1, frame.index)) * 100}%)`,
+    );
+    if (props.surface.current) delete props.surface.current.dataset.pageTransition;
+  }, [frame, props.surface, props.indicator, props.count]);
   useEffect(() => {
     const surface = props.surface.current;
     const element = track.current;
@@ -76,12 +87,18 @@ export function PageSlider(props: Props) {
       const indicatorStart = indicator ? getComputedStyle(indicator).transform : '';
       if (animation.current)
         distance.current = new DOMMatrixReadOnly(getComputedStyle(element).transform).m41;
+      paint(distance.current);
       animation.current?.cancel();
       indicatorAnimation.current?.cancel();
       const destination =
         target === undefined ? 0 : (target < state.current.index ? 1 : -1) * element.clientWidth;
       const complete = () => {
         if (token !== generation.current) return;
+        paint(destination);
+        animation.current?.cancel();
+        animation.current = undefined;
+        indicatorAnimation.current?.cancel();
+        indicatorAnimation.current = undefined;
         const old = state.current;
         const index = target ?? old.index;
         const next = { ...old, index, preview: undefined, direction: 0 };
@@ -93,12 +110,6 @@ export function PageSlider(props: Props) {
           (gesture || target === undefined)
         )
           latest.current.onSelect(index);
-        paint(0);
-        animation.current?.cancel();
-        animation.current = undefined;
-        indicatorAnimation.current?.cancel();
-        indicatorAnimation.current = undefined;
-        mark(false);
       };
       if (
         matchMedia('(prefers-reduced-motion: reduce)').matches ||

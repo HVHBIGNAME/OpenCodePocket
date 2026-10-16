@@ -199,10 +199,13 @@ export function PageDeck(props: Props) {
         const offset = new DOMMatrixReadOnly(getComputedStyle(source).transform).m41;
         progress.current = Math.max(0, Math.min(1, -offset / (transition.direction * container.clientWidth)));
       }
+      paint(progress.current);
       for (const animation of animations.current) animation.cancel();
       animations.current = [];
       const complete = () => {
         if (token !== epoch.current) return;
+        // Keep the final positions after removing the effects, until React commits the page.
+        paint(Number(commit));
         for (const animation of animations.current) animation.cancel();
         animations.current = [];
         progress.current = 0;
